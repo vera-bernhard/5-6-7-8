@@ -1,0 +1,24 @@
+name: audio_timestamp_trainer_flutter
+description: A Flutter port of the Audio Timestamp Trainer App (functional equivalent)
+publish_to: 'none'
+environment:
+  sdk: '>=2.18.0 <4.0.0'
+  flutter: '>=3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.0.0
+  just_audio: ^0.9.32
+  file_picker: ^5.2.5
+  path_provider: ^2.0.15
+  audio_waveforms: ^1.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
