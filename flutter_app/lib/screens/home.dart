@@ -9,6 +9,12 @@ import '../models/marker.dart';
 
 enum _HomeTab { library, player }
 
+class _SegmentRange {
+  final double start;
+  final double end;
+  _SegmentRange(this.start, this.end);
+}
+
 class _SongEntry {
   final String id;
   final String name;
@@ -54,9 +60,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isPlaying = false;
   int _selectedLeadInSeconds = 0;
 
-  String? _segmentPlayMarkerId;
-  double? _segmentEndSeconds;
   bool _segmentStopping = false;
+
+  final Set<String> _segmentMarkerIds = {};
 
   _SongEntry? get _activeSong {
     if (_activeSongId == null) return null;
@@ -73,17 +79,14 @@ class _HomeScreenState extends State<HomeScreen> {
     _player.positionStream.listen((position) {
       if (!mounted) return;
       setState(() => _position = position);
-      if (_segmentPlayMarkerId != null &&
-          _segmentEndSeconds != null &&
-          _isPlaying &&
-          !_segmentStopping) {
+      final range = _computeSegmentRange();
+      if (range != null && _isPlaying && !_segmentStopping) {
         final currentSec = position.inMilliseconds / 1000.0;
-        if (currentSec >= _segmentEndSeconds!) {
+        if (currentSec >= range.end) {
           _segmentStopping = true;
           _player.pause().then((_) {
             if (!mounted) return;
-            _player.seek(
-                Duration(milliseconds: (_segmentEndSeconds! * 1000).round()));
+            _player.seek(Duration(milliseconds: (range.end * 1000).round()));
             setState(() {
               _segmentStopping = false;
             });
@@ -199,9 +202,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _position = Duration.zero;
       _duration = Duration.zero;
       _isPlaying = false;
-      _segmentPlayMarkerId = null;
-      _segmentEndSeconds = null;
       _segmentStopping = false;
+      _segmentMarkerIds.clear();
     });
 
     try {
@@ -359,9 +361,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _playFromMarker(Marker marker, {int leadInSeconds = 0}) async {
     setState(() {
-      _segmentPlayMarkerId = null;
-      _segmentEndSeconds = null;
       _segmentStopping = false;
+      _segmentMarkerIds.clear();
     });
     final startSeconds =
         math.max(0.0, marker.seconds - leadInSeconds.toDouble());
@@ -369,41 +370,42 @@ class _HomeScreenState extends State<HomeScreen> {
     await _player.play();
   }
 
-  void _toggleSegmentMode(Marker marker) {
+  _SegmentRange? _computeSegmentRange() {
     final song = _activeSong;
-    if (song == null) return;
-
-    if (_segmentPlayMarkerId == marker.id) {
-      // Toggle off
-      setState(() {
-        _segmentPlayMarkerId = null;
-        _segmentEndSeconds = null;
-        _segmentStopping = false;
-      });
-      return;
-    }
+    if (song == null || _segmentMarkerIds.isEmpty) return null;
 
     final sorted = List<Marker>.from(song.markers)
       ..sort((a, b) => a.seconds.compareTo(b.seconds));
-    final currentIndex = sorted.indexWhere((m) => m.id == marker.id);
+    final selectedSorted =
+        sorted.where((m) => _segmentMarkerIds.contains(m.id)).toList();
+    if (selectedSorted.isEmpty) return null;
 
-    double endSeconds;
-    if (currentIndex >= 0 && currentIndex < sorted.length - 1) {
-      endSeconds = sorted[currentIndex + 1].seconds;
-    } else {
-      endSeconds = _duration.inMilliseconds / 1000;
-    }
+    final firstSelected = selectedSorted.first;
+    final lastSelected = selectedSorted.last;
+    final lastIndex = sorted.indexWhere((m) => m.id == lastSelected.id);
+    final end = lastIndex < sorted.length - 1
+        ? sorted[lastIndex + 1].seconds
+        : _duration.inMilliseconds / 1000;
 
+    return _SegmentRange(firstSelected.seconds, end);
+  }
+
+  void _toggleSegmentMode(Marker marker) {
     setState(() {
-      _segmentPlayMarkerId = marker.id;
-      _segmentEndSeconds = endSeconds;
+      if (_segmentMarkerIds.contains(marker.id)) {
+        _segmentMarkerIds.remove(marker.id);
+      } else {
+        _segmentMarkerIds.add(marker.id);
+      }
       _segmentStopping = false;
     });
   }
 
-  Future<void> _playSegmentFromMarker(Marker marker) async {
+  Future<void> _playSegmentFromMarker() async {
+    final range = _computeSegmentRange();
+    if (range == null) return;
     final startSeconds =
-        math.max(0.0, marker.seconds - _selectedLeadInSeconds.toDouble());
+        math.max(0.0, range.start - _selectedLeadInSeconds.toDouble());
     setState(() => _segmentStopping = false);
     await _player.seek(Duration(milliseconds: (startSeconds * 1000).round()));
     await _player.play();
@@ -610,21 +612,45 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? const Center(child: Text('No markers yet.'))
                 : ListView.separated(
                     itemCount: song.markers.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, i) {
+                      if (i < song.markers.length - 1 &&
+                          _segmentMarkerIds.contains(song.markers[i].id) &&
+                          _segmentMarkerIds.contains(song.markers[i + 1].id)) {
+                        return const SizedBox.shrink();
+                      }
+                      return const Divider(height: 1);
+                    },
                     itemBuilder: (context, i) {
                       final marker = song.markers[i];
                       final title = marker.label.isEmpty
                           ? 'Marker ${i + 1}'
                           : marker.label;
-                      final isSegment = _segmentPlayMarkerId == marker.id;
-                      return ListTile(
+                      final isSegment = _segmentMarkerIds.contains(marker.id);
+                      final prevSelected = i > 0 &&
+                          _segmentMarkerIds.contains(song.markers[i - 1].id);
+                      final nextSelected = i < song.markers.length - 1 &&
+                          _segmentMarkerIds.contains(song.markers[i + 1].id);
+
+                      final range = _computeSegmentRange();
+
+                      BorderRadius tileBorder = BorderRadius.zero;
+                      if (isSegment) {
+                        final top = prevSelected
+                            ? Radius.zero
+                            : const Radius.circular(8);
+                        final bottom = nextSelected
+                            ? Radius.zero
+                            : const Radius.circular(8);
+                        tileBorder = BorderRadius.only(
+                          topLeft: top,
+                          topRight: top,
+                          bottomLeft: bottom,
+                          bottomRight: bottom,
+                        );
+                      }
+
+                      final tile = ListTile(
                         dense: true,
-                        tileColor: isSegment
-                            ? Theme.of(context)
-                                .colorScheme
-                                .primaryContainer
-                                .withValues(alpha: 0.3)
-                            : null,
                         leading: GestureDetector(
                           onLongPress: hasAudio
                               ? () => _toggleSegmentMode(marker)
@@ -636,7 +662,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             onPressed: hasAudio
                                 ? () {
                                     if (isSegment) {
-                                      _playSegmentFromMarker(marker);
+                                      _playSegmentFromMarker();
                                     } else {
                                       _playFromMarker(
                                         marker,
@@ -649,8 +675,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         title: Text(title),
                         subtitle: Text(
-                          isSegment && _segmentEndSeconds != null
-                              ? '${_formatSeconds(marker.seconds)} → ${_formatSeconds(_segmentEndSeconds!)}'
+                          isSegment && range != null && !prevSelected
+                              ? '${_formatSeconds(range.start)} → ${_formatSeconds(range.end)}'
                               : _formatSeconds(marker.seconds),
                         ),
                         trailing: IconButton(
@@ -658,6 +684,19 @@ class _HomeScreenState extends State<HomeScreen> {
                           icon: const Icon(Icons.delete_outline),
                           onPressed: () => _deleteMarker(song, marker),
                         ),
+                      );
+
+                      if (!isSegment) return tile;
+
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primaryContainer
+                              .withValues(alpha: 0.3),
+                          borderRadius: tileBorder,
+                        ),
+                        child: tile,
                       );
                     },
                   ),
