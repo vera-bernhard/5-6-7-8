@@ -6,10 +6,9 @@ class WaveformPlayer extends StatelessWidget {
   final Duration duration;
   final bool isPlaying;
   final bool enabled;
-  final String? fileName;
   final VoidCallback onPlayPause;
-  final VoidCallback onAddMarker;
   final ValueChanged<Duration> onSeek;
+  final String? waveformSeed;
 
   const WaveformPlayer({
     super.key,
@@ -18,9 +17,8 @@ class WaveformPlayer extends StatelessWidget {
     required this.isPlaying,
     required this.enabled,
     required this.onPlayPause,
-    required this.onAddMarker,
     required this.onSeek,
-    this.fileName,
+    this.waveformSeed,
   });
 
   @override
@@ -32,16 +30,7 @@ class WaveformPlayer extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-          child: Text(
-            fileName ?? 'Selected audio',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
           child: Text(
             '${_formatDuration(position)} / ${_formatDuration(duration)}',
             style: Theme.of(context).textTheme.bodySmall,
@@ -53,7 +42,7 @@ class WaveformPlayer extends StatelessWidget {
           child: _WaveformSeekArea(
             enabled: enabled,
             progress: progress,
-            seed: fileName ?? 'wave',
+            seed: waveformSeed ?? 'wave',
             onSeekRatio: (ratio) {
               final ms = (duration.inMilliseconds * ratio).round();
               onSeek(Duration(milliseconds: ms));
@@ -68,12 +57,6 @@ class WaveformPlayer extends StatelessWidget {
               onPressed: enabled ? onPlayPause : null,
               icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
               label: Text(isPlaying ? 'Pause' : 'Play'),
-            ),
-            const SizedBox(width: 10),
-            OutlinedButton.icon(
-              onPressed: enabled ? onAddMarker : null,
-              icon: const Icon(Icons.add_location_alt_outlined),
-              label: const Text('Marker At Current Time'),
             ),
           ],
         ),
