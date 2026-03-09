@@ -54,6 +54,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isPlaying = false;
   int _selectedLeadInSeconds = 0;
 
+  String? _segmentPlayMarkerId;
+  double? _segmentEndSeconds;
+  bool _segmentStopping = false;
+
   _SongEntry? get _activeSong {
     if (_activeSongId == null) return null;
     for (final s in _songs) {
@@ -69,6 +73,23 @@ class _HomeScreenState extends State<HomeScreen> {
     _player.positionStream.listen((position) {
       if (!mounted) return;
       setState(() => _position = position);
+      if (_segmentPlayMarkerId != null &&
+          _segmentEndSeconds != null &&
+          _isPlaying &&
+          !_segmentStopping) {
+        final currentSec = position.inMilliseconds / 1000.0;
+        if (currentSec >= _segmentEndSeconds!) {
+          _segmentStopping = true;
+          _player.pause().then((_) {
+            if (!mounted) return;
+            _player.seek(
+                Duration(milliseconds: (_segmentEndSeconds! * 1000).round()));
+            setState(() {
+              _segmentStopping = false;
+            });
+          });
+        }
+      }
     });
     _player.durationStream.listen((duration) {
       if (!mounted || duration == null) return;
@@ -178,6 +199,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _position = Duration.zero;
       _duration = Duration.zero;
       _isPlaying = false;
+      _segmentPlayMarkerId = null;
+      _segmentEndSeconds = null;
+      _segmentStopping = false;
     });
 
     try {
@@ -334,8 +358,53 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _playFromMarker(Marker marker, {int leadInSeconds = 0}) async {
+    setState(() {
+      _segmentPlayMarkerId = null;
+      _segmentEndSeconds = null;
+      _segmentStopping = false;
+    });
     final startSeconds =
         math.max(0.0, marker.seconds - leadInSeconds.toDouble());
+    await _player.seek(Duration(milliseconds: (startSeconds * 1000).round()));
+    await _player.play();
+  }
+
+  void _toggleSegmentMode(Marker marker) {
+    final song = _activeSong;
+    if (song == null) return;
+
+    if (_segmentPlayMarkerId == marker.id) {
+      // Toggle off
+      setState(() {
+        _segmentPlayMarkerId = null;
+        _segmentEndSeconds = null;
+        _segmentStopping = false;
+      });
+      return;
+    }
+
+    final sorted = List<Marker>.from(song.markers)
+      ..sort((a, b) => a.seconds.compareTo(b.seconds));
+    final currentIndex = sorted.indexWhere((m) => m.id == marker.id);
+
+    double endSeconds;
+    if (currentIndex >= 0 && currentIndex < sorted.length - 1) {
+      endSeconds = sorted[currentIndex + 1].seconds;
+    } else {
+      endSeconds = _duration.inMilliseconds / 1000;
+    }
+
+    setState(() {
+      _segmentPlayMarkerId = marker.id;
+      _segmentEndSeconds = endSeconds;
+      _segmentStopping = false;
+    });
+  }
+
+  Future<void> _playSegmentFromMarker(Marker marker) async {
+    final startSeconds =
+        math.max(0.0, marker.seconds - _selectedLeadInSeconds.toDouble());
+    setState(() => _segmentStopping = false);
     await _player.seek(Duration(milliseconds: (startSeconds * 1000).round()));
     await _player.play();
   }
@@ -547,19 +616,43 @@ class _HomeScreenState extends State<HomeScreen> {
                       final title = marker.label.isEmpty
                           ? 'Marker ${i + 1}'
                           : marker.label;
+                      final isSegment = _segmentPlayMarkerId == marker.id;
                       return ListTile(
                         dense: true,
-                        leading: IconButton(
-                          icon: const Icon(Icons.play_arrow),
-                          onPressed: hasAudio
-                              ? () => _playFromMarker(
-                                    marker,
-                                    leadInSeconds: _selectedLeadInSeconds,
-                                  )
+                        tileColor: isSegment
+                            ? Theme.of(context)
+                                .colorScheme
+                                .primaryContainer
+                                .withValues(alpha: 0.3)
+                            : null,
+                        leading: GestureDetector(
+                          onLongPress: hasAudio
+                              ? () => _toggleSegmentMode(marker)
                               : null,
+                          child: IconButton(
+                            icon: Icon(
+                              isSegment ? Icons.skip_next : Icons.play_arrow,
+                            ),
+                            onPressed: hasAudio
+                                ? () {
+                                    if (isSegment) {
+                                      _playSegmentFromMarker(marker);
+                                    } else {
+                                      _playFromMarker(
+                                        marker,
+                                        leadInSeconds: _selectedLeadInSeconds,
+                                      );
+                                    }
+                                  }
+                                : null,
+                          ),
                         ),
                         title: Text(title),
-                        subtitle: Text(_formatSeconds(marker.seconds)),
+                        subtitle: Text(
+                          isSegment && _segmentEndSeconds != null
+                              ? '${_formatSeconds(marker.seconds)} → ${_formatSeconds(_segmentEndSeconds!)}'
+                              : _formatSeconds(marker.seconds),
+                        ),
                         trailing: IconButton(
                           tooltip: 'Delete marker',
                           icon: const Icon(Icons.delete_outline),
