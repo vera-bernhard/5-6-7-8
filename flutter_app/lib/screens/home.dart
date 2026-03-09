@@ -338,6 +338,38 @@ class _HomeScreenState extends State<HomeScreen> {
     await _player.play();
   }
 
+  Future<void> _deleteMarker(_SongEntry song, Marker marker) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete marker?'),
+          content: Text(
+            marker.label.isEmpty
+                ? 'This marker will be removed permanently.'
+                : '"${marker.label}" will be removed permanently.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true) return;
+
+    setState(() {
+      song.markers.removeWhere((m) => m.id == marker.id);
+    });
+  }
+
   String _formatSeconds(double s) {
     final total = s.round();
     final m = total ~/ 60;
@@ -498,6 +530,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         title: Text(title),
                         subtitle: Text(_formatSeconds(marker.seconds)),
+                        trailing: IconButton(
+                          tooltip: 'Delete marker',
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () => _deleteMarker(song, marker),
+                        ),
                       );
                     },
                   ),
