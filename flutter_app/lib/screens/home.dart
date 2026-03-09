@@ -41,6 +41,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final AudioPlayer _player;
+  static const List<int> _leadInSecondOptions = <int>[0, 1, 3, 5];
 
   final List<_SongEntry> _songs = <_SongEntry>[];
   String? _activeSongId;
@@ -51,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   bool _isPlaying = false;
+  int _selectedLeadInSeconds = 0;
 
   _SongEntry? get _activeSong {
     if (_activeSongId == null) return null;
@@ -501,6 +503,30 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+          child: Row(
+            children: [
+              const Text('Lead-in'),
+              const SizedBox(width: 12),
+              DropdownButton<int>(
+                value: _selectedLeadInSeconds,
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _selectedLeadInSeconds = value);
+                },
+                items: _leadInSecondOptions
+                    .map(
+                      (s) => DropdownMenuItem<int>(
+                        value: s,
+                        child: Text('$s s'),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+          ),
+        ),
         Container(
           margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
           padding: const EdgeInsets.all(8),
@@ -525,8 +551,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         dense: true,
                         leading: IconButton(
                           icon: const Icon(Icons.play_arrow),
-                          onPressed:
-                              hasAudio ? () => _playFromMarker(marker) : null,
+                          onPressed: hasAudio
+                              ? () => _playFromMarker(
+                                    marker,
+                                    leadInSeconds: _selectedLeadInSeconds,
+                                  )
+                              : null,
                         ),
                         title: Text(title),
                         subtitle: Text(_formatSeconds(marker.seconds)),
