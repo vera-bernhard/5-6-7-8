@@ -27,6 +27,12 @@ flutter devices
 flutter run -d chrome
 ```
 
+## Build
+```bash
+flutter build apk --release
+```
+
+
 ## Tech Stack
 
 - State management: Riverpod

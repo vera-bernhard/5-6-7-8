@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:just_audio/just_audio.dart';
 import '../widgets/waveform_player.dart';
 import '../models/marker.dart';
+import '../services/song_storage.dart';
 
 enum _HomeTab { library, player }
 
@@ -20,6 +22,7 @@ class _SongEntry {
   final String name;
   final String? path;
   final Uint8List? bytes;
+  final String? audioFileName;
   final List<Marker> markers;
 
   _SongEntry({
@@ -27,6 +30,7 @@ class _SongEntry {
     required this.name,
     this.path,
     this.bytes,
+    this.audioFileName,
     List<Marker>? markers,
   }) : markers = markers ?? <Marker>[];
 }
@@ -76,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _player = AudioPlayer();
+    _loadSavedSongs();
     _player.positionStream.listen((position) {
       if (!mounted) return;
       setState(() => _position = position);
@@ -108,6 +113,29 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _player.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSavedSongs() async {
+    if (kIsWeb) return;
+    final stored = await SongStorage.loadAll();
+    final entries = <_SongEntry>[];
+    for (final s in stored) {
+      final filePath = await SongStorage.getAudioFilePath(s.audioFileName);
+      if (filePath != null) {
+        entries.add(_SongEntry(
+          id: s.id,
+          name: s.name,
+          path: filePath,
+          audioFileName: s.audioFileName,
+          markers: s.markers,
+        ));
+      }
+    }
+    if (mounted && entries.isNotEmpty) {
+      setState(() {
+        _songs.addAll(entries);
+      });
+    }
   }
 
   Future<void> _pickAudio() async {
@@ -161,11 +189,29 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
+      final songId = DateTime.now().microsecondsSinceEpoch.toString();
+      String? audioFileName;
+      String? persistedPath = safePath;
+
+      // Persist audio file to app storage
+      if (!kIsWeb && bytes != null) {
+        audioFileName =
+            await SongStorage.saveAudioFile(songId, file.name, bytes);
+        persistedPath = await SongStorage.getAudioFilePath(audioFileName);
+      } else if (!kIsWeb && safePath != null) {
+        // Copy from original path to app storage
+        final fileBytes = await File(safePath).readAsBytes();
+        audioFileName =
+            await SongStorage.saveAudioFile(songId, file.name, fileBytes);
+        persistedPath = await SongStorage.getAudioFilePath(audioFileName);
+      }
+
       final song = _SongEntry(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        id: songId,
         name: file.name,
-        path: safePath,
+        path: persistedPath,
         bytes: bytes,
+        audioFileName: audioFileName,
       );
 
       setState(() {
@@ -173,6 +219,16 @@ class _HomeScreenState extends State<HomeScreen> {
         _activeSongId = song.id;
         _activeTab = _HomeTab.player;
       });
+
+      // Persist song metadata
+      if (!kIsWeb && audioFileName != null) {
+        await SongStorage.addSong(StoredSong(
+          id: song.id,
+          name: song.name,
+          audioFileName: audioFileName,
+          markers: song.markers,
+        ));
+      }
 
       await _loadSong(song);
     } catch (_) {
@@ -357,6 +413,9 @@ class _HomeScreenState extends State<HomeScreen> {
       song.markers.add(marker);
       song.markers.sort((a, b) => a.seconds.compareTo(b.seconds));
     });
+    if (!kIsWeb) {
+      SongStorage.updateMarkers(song.id, song.markers);
+    }
   }
 
   Future<void> _playFromMarker(Marker marker, {int leadInSeconds = 0}) async {
@@ -441,6 +500,9 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       song.markers.removeWhere((m) => m.id == marker.id);
     });
+    if (!kIsWeb) {
+      SongStorage.updateMarkers(song.id, song.markers);
+    }
   }
 
   String _formatSeconds(double s) {
@@ -556,24 +618,24 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
-        Expanded(
-          child: hasAudio
-              ? WaveformPlayer(
-                  position: _position,
-                  duration: _duration,
-                  isPlaying: _isPlaying,
-                  enabled: true,
-                  waveformSeed: song.name,
-                  onPlayPause: _onPlayPause,
-                  onSeek: _onSeek,
-                )
-              : Center(
-                  child: Text(
-                    _loadError ?? 'Song selected, but audio is not loaded yet.',
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-        ),
+        if (hasAudio)
+          WaveformPlayer(
+            position: _position,
+            duration: _duration,
+            isPlaying: _isPlaying,
+            enabled: true,
+            waveformSeed: song.name,
+            onPlayPause: _onPlayPause,
+            onSeek: _onSeek,
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              _loadError ?? 'Song selected, but audio is not loaded yet.',
+              textAlign: TextAlign.center,
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
           child: Row(
@@ -598,16 +660,15 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        Container(
-          margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            border:
-                Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: SizedBox(
-            height: 180,
+        Expanded(
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant),
+              borderRadius: BorderRadius.circular(12),
+            ),
             child: song.markers.isEmpty
                 ? const Center(child: Text('No markers yet.'))
                 : ListView.separated(
