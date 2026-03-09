@@ -92,7 +92,7 @@ class _WaveformSeekArea extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 130,
+      height: 110,
       child: LayoutBuilder(
         builder: (context, constraints) {
           return GestureDetector(
@@ -157,8 +157,8 @@ class _WaveformPainter extends CustomPainter {
     );
     canvas.drawRRect(border, bgPaint);
 
-    const bars = 90;
-    const gap = 2.0;
+    const bars = 200;
+    const gap = 1.2;
     final totalGap = gap * (bars - 1);
     final barWidth = (size.width - totalGap) / bars;
     final centerY = size.height / 2;
@@ -167,7 +167,7 @@ class _WaveformPainter extends CustomPainter {
     for (var i = 0; i < bars; i++) {
       final x = i * (barWidth + gap);
       final amp = _amplitude(i);
-      final barHeight = math.max(10.0, size.height * amp);
+      final barHeight = math.max(4.0, size.height * amp);
       final rect = RRect.fromRectAndRadius(
         Rect.fromLTWH(x, centerY - (barHeight / 2), barWidth, barHeight),
         const Radius.circular(2),
