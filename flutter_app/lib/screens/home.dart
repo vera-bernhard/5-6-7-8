@@ -649,33 +649,40 @@ class _HomeScreenState extends State<HomeScreen> {
                         );
                       }
 
+                      final isFirstInSegment = isSegment && !prevSelected;
+
                       final tile = ListTile(
                         dense: true,
                         leading: GestureDetector(
                           onLongPress: hasAudio
                               ? () => _toggleSegmentMode(marker)
                               : null,
-                          child: IconButton(
-                            icon: Icon(
-                              isSegment ? Icons.skip_next : Icons.play_arrow,
-                            ),
-                            onPressed: hasAudio
-                                ? () {
-                                    if (isSegment) {
-                                      _playSegmentFromMarker();
-                                    } else {
-                                      _playFromMarker(
-                                        marker,
-                                        leadInSeconds: _selectedLeadInSeconds,
-                                      );
-                                    }
-                                  }
-                                : null,
-                          ),
+                          child: isSegment && !isFirstInSegment
+                              ? const SizedBox(width: 48)
+                              : IconButton(
+                                  icon: Icon(
+                                    isFirstInSegment
+                                        ? Icons.skip_next
+                                        : Icons.play_arrow,
+                                  ),
+                                  onPressed: hasAudio
+                                      ? () {
+                                          if (isFirstInSegment) {
+                                            _playSegmentFromMarker();
+                                          } else {
+                                            _playFromMarker(
+                                              marker,
+                                              leadInSeconds:
+                                                  _selectedLeadInSeconds,
+                                            );
+                                          }
+                                        }
+                                      : null,
+                                ),
                         ),
                         title: Text(title),
                         subtitle: Text(
-                          isSegment && range != null && !prevSelected
+                          isFirstInSegment && range != null
                               ? '${_formatSeconds(range.start)} → ${_formatSeconds(range.end)}'
                               : _formatSeconds(marker.seconds),
                         ),
