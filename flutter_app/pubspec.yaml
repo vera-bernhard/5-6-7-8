@@ -1,4 +1,5 @@
-name: audio_timestamp_trainer_flutter
+name: five_six_seven_eight
+version: 1.0.0+1
 description: A Flutter port of the Audio Timestamp Trainer App (functional equivalent)
 publish_to: 'none'
 environment:
