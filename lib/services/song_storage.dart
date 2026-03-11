@@ -109,6 +109,19 @@ class SongStorage {
     await _saveIndex(songs);
   }
 
+  static Future<void> renameSong(String songId, String newName) async {
+    final songs = await loadAll();
+    final idx = songs.indexWhere((s) => s.id == songId);
+    if (idx == -1) return;
+    songs[idx] = StoredSong(
+      id: songs[idx].id,
+      name: newName,
+      audioFileName: songs[idx].audioFileName,
+      markers: songs[idx].markers,
+    );
+    await _saveIndex(songs);
+  }
+
   static Future<void> deleteSong(String songId) async {
     final songs = await loadAll();
     final matches = songs.where((s) => s.id == songId);

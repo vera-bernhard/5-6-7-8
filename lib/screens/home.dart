@@ -189,6 +189,10 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
+      // Ask user for a display name
+      final displayName = await _askForDisplayName(file.name);
+      if (displayName == null) return; // user cancelled
+
       final songId = DateTime.now().microsecondsSinceEpoch.toString();
       String? audioFileName;
       String? persistedPath = safePath;
@@ -208,10 +212,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final song = _SongEntry(
         id: songId,
-        name: file.name,
+        name: displayName,
         path: persistedPath,
         bytes: bytes,
-        audioFileName: audioFileName,
+        audioFileName: audioFileName ?? file.name,
       );
 
       setState(() {
@@ -238,6 +242,59 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     }
+  }
+
+  Future<String?> _askForDisplayName(String originalFileName) async {
+    // Strip extension for the default display name
+    final dotIndex = originalFileName.lastIndexOf('.');
+    final defaultName = dotIndex > 0
+        ? originalFileName.substring(0, dotIndex)
+        : originalFileName;
+    final controller = TextEditingController(text: defaultName);
+
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Name this song'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                originalFileName,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.secondary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'Display name'),
+                onSubmitted: (value) {
+                  final name = value.trim();
+                  Navigator.of(context).pop(name.isEmpty ? defaultName : name);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = controller.text.trim();
+                Navigator.of(context).pop(name.isEmpty ? defaultName : name);
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<Uint8List> _readBytesFromStream(Stream<List<int>> stream) async {
@@ -270,7 +327,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final source = AudioSource.uri(
             Uri.dataFromBytes(
               song.bytes!,
-              mimeType: _mimeTypeFromFileName(song.name),
+              mimeType: _mimeTypeFromFileName(song.audioFileName ?? song.name),
             ),
           );
           await _player.setAudioSource(source);
@@ -283,7 +340,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final source = AudioSource.uri(
           Uri.dataFromBytes(
             song.bytes!,
-            mimeType: _mimeTypeFromFileName(song.name),
+            mimeType: _mimeTypeFromFileName(song.audioFileName ?? song.name),
           ),
         );
         await _player.setAudioSource(source);
@@ -505,6 +562,55 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _renameSong(_SongEntry song) async {
+    final controller = TextEditingController(text: song.name);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Rename song'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Song name'),
+            onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('Rename'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (newName == null || newName.isEmpty || newName == song.name) return;
+
+    final idx = _songs.indexWhere((s) => s.id == song.id);
+    if (idx == -1) return;
+
+    setState(() {
+      _songs[idx] = _SongEntry(
+        id: song.id,
+        name: newName,
+        path: song.path,
+        bytes: song.bytes,
+        audioFileName: song.audioFileName,
+        markers: song.markers,
+      );
+    });
+
+    if (!kIsWeb) {
+      SongStorage.renameSong(song.id, newName);
+    }
+  }
+
   String _formatSeconds(double s) {
     final total = s.round();
     final m = total ~/ 60;
@@ -557,8 +663,20 @@ class _HomeScreenState extends State<HomeScreen> {
                     final song = _songs[index];
                     return ListTile(
                       title: Text(song.name),
-                      subtitle: Text('${song.markers.length} marker(s)'),
-                      trailing: const Icon(Icons.chevron_right),
+                      subtitle: Text(
+                        '${song.markers.length} marker(s)',
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Rename',
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () => _renameSong(song),
+                          ),
+                          const Icon(Icons.chevron_right),
+                        ],
+                      ),
                       onTap: () => _openSongFromLibrary(song),
                     );
                   },
@@ -597,11 +715,25 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-          child: Text(
-            song.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleMedium,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                song.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              if (song.audioFileName != null)
+                Text(
+                  song.audioFileName!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.secondary,
+                      ),
+                ),
+            ],
           ),
         ),
         Padding(
