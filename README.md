@@ -1,11 +1,40 @@
+# Audio Timestamp Trainer - Flutter
 
-  # Audio Timestamp Trainer App
+A dance practice helper app: load audio, create named timestamps, and jump to
+choreography sections quickly.
 
-  This is a code bundle for Audio Timestamp Trainer App. The original project is available at https://www.figma.com/design/obGEmHbSz72Z6ISrnxFyyr/Audio-Timestamp-Trainer-App.
+## Features
 
-  ## Running the code
+- Import audio files (`mp3`, `wav`, `m4a`, `aac`, `ogg`)
+- Playback with seek controls and a horizontal waveform-style timeline
+- Create named timestamps at the current playback position
+- Tap timestamp: jump to marker using selected default lead-in (`0s`, `3s`, `5s`)
+- Long-press timestamp: choose lead-in per jump (`0s`, `3s`, `5s`)
 
-  Run `npm i` to install the dependencies.
+## Run
 
-  Run `npm run dev` to start the development server.
-  
+Requires Flutter SDK.
+
+```bash
+flutter pub get
+flutter run
+```
+
+Run on a specific device/platform:
+
+```bash
+flutter devices
+flutter run -d chrome
+```
+
+## Build
+```bash
+flutter build apk --release
+```
+
+
+## Tech Stack
+
+- State management: Riverpod
+- Audio engine: just_audio
+- File picker: file_picker
