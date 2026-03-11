@@ -11,9 +11,20 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const logoBlueDark = Color(0xFF0A3695);
     return MaterialApp(
-      title: 'Audio Timestamp Trainer',
-      theme: ThemeData(primarySwatch: Colors.blue),
+      title: '5-6-7-8',
+      theme: ThemeData(
+        primaryColor: logoBlueDark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: logoBlueDark,
+          primary: logoBlueDark,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: logoBlueDark,
+          foregroundColor: Colors.white,
+        ),
+      ),
       home: const HomeScreen(),
     );
   }
