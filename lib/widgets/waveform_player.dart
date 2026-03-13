@@ -7,6 +7,8 @@ class WaveformPlayer extends StatelessWidget {
   final bool isPlaying;
   final bool enabled;
   final VoidCallback onPlayPause;
+  final VoidCallback onShufflePlay;
+  final bool shufflePlayEnabled;
   final ValueChanged<Duration> onSeek;
   final String? waveformSeed;
 
@@ -17,6 +19,8 @@ class WaveformPlayer extends StatelessWidget {
     required this.isPlaying,
     required this.enabled,
     required this.onPlayPause,
+    required this.onShufflePlay,
+    required this.shufflePlayEnabled,
     required this.onSeek,
     this.waveformSeed,
   });
@@ -57,6 +61,12 @@ class WaveformPlayer extends StatelessWidget {
               onPressed: enabled ? onPlayPause : null,
               icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
               label: Text(isPlaying ? 'Pause' : 'Play'),
+            ),
+            const SizedBox(width: 10),
+            FilledButton.icon(
+              onPressed: enabled && shufflePlayEnabled ? onShufflePlay : null,
+              icon: const Icon(Icons.shuffle),
+              label: const Text('Random'),
             ),
           ],
         ),

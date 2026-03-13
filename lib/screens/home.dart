@@ -63,8 +63,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isPreparingUpload = false;
 
   bool _segmentStopping = false;
+  double? _playbackStopAtSeconds;
 
   final Set<String> _segmentMarkerIds = {};
+  final Map<String, Set<String>> _shuffleMarkerIdsBySong = {};
 
   _SongEntry? get _activeSong {
     if (_activeSongId == null) return null;
@@ -72,6 +74,10 @@ class _HomeScreenState extends State<HomeScreen> {
       if (s.id == _activeSongId) return s;
     }
     return null;
+  }
+
+  Set<String> _shuffleIdsForSong(String songId) {
+    return _shuffleMarkerIdsBySong.putIfAbsent(songId, () => <String>{});
   }
 
   @override
@@ -82,15 +88,16 @@ class _HomeScreenState extends State<HomeScreen> {
     _player.positionStream.listen((position) {
       if (!mounted) return;
       setState(() => _position = position);
-      final range = _computeSegmentRange();
-      if (range != null && _isPlaying && !_segmentStopping) {
+      final stopAt = _playbackStopAtSeconds;
+      if (stopAt != null && _isPlaying && !_segmentStopping) {
         final currentSec = position.inMilliseconds / 1000.0;
-        if (currentSec >= range.end) {
+        if (currentSec >= stopAt) {
           _segmentStopping = true;
           _player.pause().then((_) {
             if (!mounted) return;
-            _player.seek(Duration(milliseconds: (range.end * 1000).round()));
+            _player.seek(Duration(milliseconds: (stopAt * 1000).round()));
             setState(() {
+              _playbackStopAtSeconds = null;
               _segmentStopping = false;
             });
           });
@@ -311,6 +318,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _duration = Duration.zero;
       _isPlaying = false;
       _segmentStopping = false;
+      _playbackStopAtSeconds = null;
       _segmentMarkerIds.clear();
     });
 
@@ -469,6 +477,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _playFromMarker(Marker marker, {int leadInSeconds = 0}) async {
     setState(() {
       _segmentStopping = false;
+      _playbackStopAtSeconds = null;
       _segmentMarkerIds.clear();
     });
     final startSeconds =
@@ -513,7 +522,56 @@ class _HomeScreenState extends State<HomeScreen> {
     if (range == null) return;
     final startSeconds =
         math.max(0.0, range.start - _selectedLeadInSeconds.toDouble());
-    setState(() => _segmentStopping = false);
+    setState(() {
+      _segmentStopping = false;
+      _playbackStopAtSeconds = range.end;
+    });
+    await _player.seek(Duration(milliseconds: (startSeconds * 1000).round()));
+    await _player.play();
+  }
+
+  void _toggleShuffleMarker(_SongEntry song, Marker marker) {
+    final shuffleIds = _shuffleIdsForSong(song.id);
+    setState(() {
+      if (shuffleIds.contains(marker.id)) {
+        shuffleIds.remove(marker.id);
+      } else {
+        shuffleIds.add(marker.id);
+      }
+    });
+  }
+
+  bool _hasShuffleEnabledMarkers(_SongEntry song) {
+    final ids = _shuffleIdsForSong(song.id);
+    return song.markers.any((m) => ids.contains(m.id));
+  }
+
+  Future<void> _playShuffleSegment() async {
+    final song = _activeSong;
+    if (song == null) return;
+
+    final shuffleIds = _shuffleIdsForSong(song.id);
+    final shuffledMarkers = List<Marker>.from(song.markers)
+      ..sort((a, b) => a.seconds.compareTo(b.seconds));
+    final enabled =
+        shuffledMarkers.where((m) => shuffleIds.contains(m.id)).toList();
+
+    if (enabled.isEmpty) return;
+
+    final selected = enabled[math.Random().nextInt(enabled.length)];
+    final selectedIndex = enabled.indexWhere((m) => m.id == selected.id);
+    final stopAt = selectedIndex < enabled.length - 1
+        ? enabled[selectedIndex + 1].seconds
+        : (_duration.inMilliseconds / 1000.0);
+    final startSeconds =
+        math.max(0.0, selected.seconds - _selectedLeadInSeconds.toDouble());
+
+    setState(() {
+      _segmentStopping = false;
+      _playbackStopAtSeconds = stopAt;
+      _segmentMarkerIds.clear();
+    });
+
     await _player.seek(Duration(milliseconds: (startSeconds * 1000).round()));
     await _player.play();
   }
@@ -548,6 +606,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       song.markers.removeWhere((m) => m.id == marker.id);
     });
+    _shuffleIdsForSong(song.id).remove(marker.id);
     SongStorage.updateMarkers(song.id, song.markers);
   }
 
@@ -634,6 +693,8 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _songs.removeWhere((s) => s.id == song.id);
     });
+
+    _shuffleMarkerIdsBySong.remove(song.id);
 
     SongStorage.deleteSong(song.id);
   }
@@ -742,6 +803,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildPlayerView() {
     final song = _activeSong;
     final hasAudio = song != null && _loadError == null;
+    final hasShuffleEnabled = song != null && _hasShuffleEnabledMarkers(song);
 
     if (song == null) {
       return const Center(
@@ -797,6 +859,8 @@ class _HomeScreenState extends State<HomeScreen> {
             enabled: true,
             waveformSeed: song.name,
             onPlayPause: _onPlayPause,
+            onShufflePlay: _playShuffleSegment,
+            shufflePlayEnabled: hasShuffleEnabled,
             onSeek: _onSeek,
           )
         else
@@ -854,6 +918,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                     itemBuilder: (context, i) {
                       final marker = song.markers[i];
+                      final isShuffleEnabled =
+                          _shuffleIdsForSong(song.id).contains(marker.id);
                       final title = marker.label.isEmpty
                           ? 'Marker ${i + 1}'
                           : marker.label;
@@ -918,10 +984,24 @@ class _HomeScreenState extends State<HomeScreen> {
                               ? '${_formatSeconds(range.start)} → ${_formatSeconds(range.end)}'
                               : _formatSeconds(marker.seconds),
                         ),
-                        trailing: IconButton(
-                          tooltip: 'Delete marker',
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () => _deleteMarker(song, marker),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Shuffle marker',
+                              icon: const Icon(Icons.shuffle),
+                              color: isShuffleEnabled
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context).colorScheme.outline,
+                              onPressed: () =>
+                                  _toggleShuffleMarker(song, marker),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete marker',
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => _deleteMarker(song, marker),
+                            ),
+                          ],
                         ),
                       );
 
