@@ -2,6 +2,15 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/timestamp.dart';
 
+Map<String, dynamic> _asStringKeyedMap(dynamic raw) {
+  if (raw is Map) {
+    return raw.map(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+  }
+  throw const FormatException('Expected map value.');
+}
+
 class StoredSong {
   final String id;
   final String name;
@@ -26,16 +35,24 @@ class StoredSong {
             timestamps.map((timestamp) => timestamp.toJson()).toList(),
       };
 
-  factory StoredSong.fromJson(Map<String, dynamic> json) => StoredSong(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        audioFileName: json['audioFileName'] as String,
-        audioBytes: _parseAudioBytes(json['audioBytes']),
-        timestamps: ((json['timestamps'] ?? json['markers']) as List<dynamic>)
-            .map((timestamp) =>
-                Timestamp.fromJson(timestamp as Map<String, dynamic>))
-            .toList(),
-      );
+  factory StoredSong.fromJson(Map<String, dynamic> json) {
+    final rawTimestamps =
+        json['timestamps'] ?? json['markers'] ?? const <dynamic>[];
+    final timestamps = rawTimestamps is List
+        ? rawTimestamps
+            .map(
+                (timestamp) => Timestamp.fromJson(_asStringKeyedMap(timestamp)))
+            .toList()
+        : <Timestamp>[];
+
+    return StoredSong(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      audioFileName: json['audioFileName'] as String,
+      audioBytes: _parseAudioBytes(json['audioBytes']),
+      timestamps: timestamps,
+    );
+  }
 
   static Uint8List _parseAudioBytes(dynamic raw) {
     if (raw is Uint8List) return raw;
@@ -65,15 +82,20 @@ class SongStorage {
 
   static Future<List<StoredSong>> loadAll() async {
     final box = await _getBox();
-    final raw = box.get(_songsKey, defaultValue: <dynamic>[]) as List<dynamic>;
+    final raw = box.get(_songsKey, defaultValue: <dynamic>[]);
+    if (raw is! List) return <StoredSong>[];
 
-    try {
-      return raw
-          .map((e) => StoredSong.fromJson(e as Map<String, dynamic>))
-          .toList();
-    } catch (_) {
-      return [];
+    final songs = <StoredSong>[];
+    for (final entry in raw) {
+      try {
+        songs.add(StoredSong.fromJson(_asStringKeyedMap(entry)));
+      } catch (error, stackTrace) {
+        debugPrint('Skipping unreadable stored song: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
     }
+
+    return songs;
   }
 
   static Future<void> _saveIndex(List<StoredSong> songs) async {

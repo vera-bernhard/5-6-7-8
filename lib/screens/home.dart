@@ -483,7 +483,7 @@ class _HomeScreenState extends State<HomeScreen> {
       song.timestamps.add(timestamp);
       song.timestamps.sort((a, b) => a.seconds.compareTo(b.seconds));
     });
-    SongStorage.updateTimestamps(song.id, song.timestamps);
+    await SongStorage.updateTimestamps(song.id, song.timestamps);
   }
 
   Future<void> _playFromTimestamp(Timestamp timestamp,
@@ -646,7 +646,7 @@ class _HomeScreenState extends State<HomeScreen> {
       song.timestamps.removeWhere((m) => m.id == timestamp.id);
     });
     _shuffleIdsForSong(song.id).remove(timestamp.id);
-    SongStorage.updateTimestamps(song.id, song.timestamps);
+    await SongStorage.updateTimestamps(song.id, song.timestamps);
   }
 
   Future<void> _renameSong(_SongEntry song) async {
@@ -692,7 +692,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     });
 
-    SongStorage.renameSong(song.id, newName);
+    await SongStorage.renameSong(song.id, newName);
   }
 
   Future<void> _deleteSongFromLibrary(_SongEntry song) async {
@@ -735,7 +735,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _shuffleTimestampIdsBySong.remove(song.id);
 
-    SongStorage.deleteSong(song.id);
+    await SongStorage.deleteSong(song.id);
   }
 
   String _formatSeconds(double s) {
