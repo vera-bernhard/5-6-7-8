@@ -171,12 +171,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _pickAudio() async {
     FilePickerResult? result;
+
     try {
-      final isIosFileImport =
-          !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
       result = await FilePicker.platform
           .pickFiles(
-            type: isIosFileImport ? FileType.any : FileType.audio,
+            type: FileType.any,
             withData: true,
             withReadStream: true,
           )
@@ -225,11 +224,9 @@ class _HomeScreenState extends State<HomeScreen> {
       showingUploadLoader = true;
 
       Uint8List? bytes = file.bytes;
-
       if (bytes == null && file.readStream != null) {
         bytes = await _readBytesFromStream(file.readStream!);
       }
-
       if (bytes == null) {
         if (mounted) {
           setState(() => _isPreparingUpload = false);
@@ -384,19 +381,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await _player.stop();
 
-      if (kIsWeb) {
-        if (song.bytes != null) {
-          final source = AudioSource.uri(
-            Uri.dataFromBytes(
-              song.bytes!,
-              mimeType: _mimeTypeFromFileName(song.audioFileName ?? song.name),
-            ),
-          );
-          await _player.setAudioSource(source);
-        } else {
-          throw StateError('No browser-loadable bytes were provided.');
-        }
-      } else if (song.bytes != null) {
+      if (song.bytes != null) {
         final source = AudioSource.uri(
           Uri.dataFromBytes(
             song.bytes!,
@@ -1151,7 +1136,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('5-6-7-8 beta'),
+        title: const Text('5-6-7-8 Beta'),
       ),
       body: Column(
         children: [
