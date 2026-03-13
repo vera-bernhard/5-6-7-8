@@ -509,7 +509,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _toggleSegmentMode(Marker marker) {
     setState(() {
       if (_segmentMarkerIds.contains(marker.id)) {
-        _segmentMarkerIds.remove(marker.id);
+        _segmentMarkerIds.clear();
       } else {
         _segmentMarkerIds.add(marker.id);
       }
@@ -951,33 +951,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       final tile = ListTile(
                         dense: true,
-                        leading: GestureDetector(
-                          onLongPress: hasAudio
-                              ? () => _toggleSegmentMode(marker)
-                              : null,
-                          child: isSegment && !isFirstInSegment
-                              ? const SizedBox(width: 48)
-                              : IconButton(
-                                  icon: Icon(
-                                    isFirstInSegment
-                                        ? Icons.skip_next
-                                        : Icons.play_arrow,
-                                  ),
-                                  onPressed: hasAudio
-                                      ? () {
-                                          if (isFirstInSegment) {
-                                            _playSegmentFromMarker();
-                                          } else {
-                                            _playFromMarker(
-                                              marker,
-                                              leadInSeconds:
-                                                  _selectedLeadInSeconds,
-                                            );
-                                          }
-                                        }
-                                      : null,
+                        onLongPress:
+                            hasAudio ? () => _toggleSegmentMode(marker) : null,
+                        leading: isSegment && !isFirstInSegment
+                            ? const SizedBox(width: 48)
+                            : IconButton(
+                                icon: Icon(
+                                  isFirstInSegment
+                                      ? Icons.skip_next
+                                      : Icons.play_arrow,
                                 ),
-                        ),
+                                onPressed: hasAudio
+                                    ? () {
+                                        if (isFirstInSegment) {
+                                          _playSegmentFromMarker();
+                                        } else {
+                                          _playFromMarker(
+                                            marker,
+                                            leadInSeconds:
+                                                _selectedLeadInSeconds,
+                                          );
+                                        }
+                                      }
+                                    : null,
+                              ),
                         title: Text(title),
                         subtitle: Text(
                           isFirstInSegment && range != null
