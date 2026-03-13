@@ -948,39 +948,70 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
 
                       final isFirstInSegment = isSegment && !prevSelected;
+                      const markerLeadingWidth = 40.0;
+                      final segmentRangeLabel = (isFirstInSegment &&
+                              range != null)
+                          ? '${_formatSeconds(range.start)} → ${_formatSeconds(range.end)}'
+                          : null;
 
                       final tile = ListTile(
                         dense: true,
+                        minLeadingWidth: markerLeadingWidth,
+                        horizontalTitleGap: 8,
                         onLongPress:
                             hasAudio ? () => _toggleSegmentMode(marker) : null,
                         leading: isSegment && !isFirstInSegment
-                            ? const SizedBox(width: 48)
-                            : IconButton(
-                                icon: Icon(
-                                  isFirstInSegment
-                                      ? Icons.skip_next
-                                      : Icons.play_arrow,
-                                ),
-                                onPressed: hasAudio
-                                    ? () {
-                                        if (isFirstInSegment) {
-                                          _playSegmentFromMarker();
-                                        } else {
-                                          _playFromMarker(
-                                            marker,
-                                            leadInSeconds:
-                                                _selectedLeadInSeconds,
-                                          );
+                            ? const SizedBox(width: markerLeadingWidth)
+                            : SizedBox(
+                                width: markerLeadingWidth,
+                                height: markerLeadingWidth,
+                                child: IconButton(
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints.tightFor(
+                                    width: markerLeadingWidth,
+                                    height: markerLeadingWidth,
+                                  ),
+                                  icon: Icon(
+                                    isFirstInSegment
+                                        ? Icons.skip_next
+                                        : Icons.play_arrow,
+                                  ),
+                                  onPressed: hasAudio
+                                      ? () {
+                                          if (isFirstInSegment) {
+                                            _playSegmentFromMarker();
+                                          } else {
+                                            _playFromMarker(
+                                              marker,
+                                              leadInSeconds:
+                                                  _selectedLeadInSeconds,
+                                            );
+                                          }
                                         }
-                                      }
-                                    : null,
+                                      : null,
+                                ),
                               ),
-                        title: Text(title),
-                        subtitle: Text(
-                          isFirstInSegment && range != null
-                              ? '${_formatSeconds(range.start)} → ${_formatSeconds(range.end)}'
-                              : _formatSeconds(marker.seconds),
-                        ),
+                        title: isFirstInSegment && segmentRangeLabel != null
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    segmentRangeLabel,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .secondary,
+                                        ),
+                                  ),
+                                  Text(title),
+                                ],
+                              )
+                            : Text(title),
+                        subtitle: Text(_formatSeconds(marker.seconds)),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
