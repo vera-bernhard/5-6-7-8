@@ -69,6 +69,15 @@ class _HomeScreenState extends State<HomeScreen> {
     'ogg',
     'wav',
   ];
+  static const Set<String> _supportedAudioExtensions = <String>{
+    'aac',
+    'm4a',
+    'mid',
+    'midi',
+    'mp3',
+    'ogg',
+    'wav',
+  };
   static const List<int> _leadInSecondOptions = <int>[0, 1, 3, 5];
 
   final List<_SongEntry> _songs = <_SongEntry>[];
@@ -167,8 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
           !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
       result = await FilePicker.platform
           .pickFiles(
-            type: isIosFileImport ? FileType.custom : FileType.audio,
-            allowedExtensions: isIosFileImport ? _iosAudioExtensions : null,
+            type: isIosFileImport ? FileType.any : FileType.audio,
             withData: true,
             withReadStream: true,
           )
@@ -197,12 +205,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
     var showingUploadLoader = false;
     try {
+      final file = result.files.first;
+      if (!_isSupportedAudioFile(file)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Please select an audio file (${_iosAudioExtensions.join(', ')}).',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
       if (mounted) {
         setState(() => _isPreparingUpload = true);
       }
       showingUploadLoader = true;
 
-      final file = result.files.first;
       Uint8List? bytes = file.bytes;
 
       if (bytes == null && file.readStream != null) {
@@ -268,6 +289,20 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     }
+  }
+
+  bool _isSupportedAudioFile(PlatformFile file) {
+    final extension =
+        (file.extension ?? _extensionFromName(file.name))?.trim().toLowerCase();
+    return extension != null && _supportedAudioExtensions.contains(extension);
+  }
+
+  String? _extensionFromName(String fileName) {
+    final dotIndex = fileName.lastIndexOf('.');
+    if (dotIndex < 0 || dotIndex == fileName.length - 1) {
+      return null;
+    }
+    return fileName.substring(dotIndex + 1);
   }
 
   Future<String?> _askForDisplayName(String originalFileName) async {
