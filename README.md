@@ -32,6 +32,14 @@ flutter run -d chrome
 flutter build apk --release
 ```
 
+Build for web/PWA:
+
+```bash
+flutter build web --release
+```
+
+Deploy the generated `build/web` folder over HTTPS to enable full installable PWA behavior.
+
 
 ## Tech Stack
 

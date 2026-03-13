@@ -1,19 +1,19 @@
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import '../models/marker.dart';
 
 class StoredSong {
   final String id;
   final String name;
   final String audioFileName;
+  final Uint8List audioBytes;
   final List<Marker> markers;
 
   StoredSong({
     required this.id,
     required this.name,
     required this.audioFileName,
+    required this.audioBytes,
     required this.markers,
   });
 
@@ -21,6 +21,7 @@ class StoredSong {
         'id': id,
         'name': name,
         'audioFileName': audioFileName,
+        'audioBytes': audioBytes,
         'markers': markers.map((m) => m.toJson()).toList(),
       };
 
@@ -28,34 +29,44 @@ class StoredSong {
         id: json['id'] as String,
         name: json['name'] as String,
         audioFileName: json['audioFileName'] as String,
+        audioBytes: _parseAudioBytes(json['audioBytes']),
         markers: (json['markers'] as List<dynamic>)
             .map((m) => Marker.fromJson(m as Map<String, dynamic>))
             .toList(),
       );
+
+  static Uint8List _parseAudioBytes(dynamic raw) {
+    if (raw is Uint8List) return raw;
+    if (raw is List<int>) return Uint8List.fromList(raw);
+    if (raw is List<dynamic>) {
+      return Uint8List.fromList(raw.map((e) => e as int).toList());
+    }
+    return Uint8List(0);
+  }
 }
 
 class SongStorage {
-  static const _indexFile = 'songs_index.json';
+  static const String _boxName = 'songs_storage';
+  static const String _songsKey = 'songs';
+  static Box<dynamic>? _box;
 
-  static Future<Directory> _songsDir() async {
-    final appDir = await getApplicationDocumentsDirectory();
-    final dir = Directory('${appDir.path}/songs');
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    return dir;
+  static Future<void> init() async {
+    if (_box != null && _box!.isOpen) return;
+    await Hive.initFlutter();
+    _box = await Hive.openBox<dynamic>(_boxName);
+  }
+
+  static Future<Box<dynamic>> _getBox() async {
+    await init();
+    return _box!;
   }
 
   static Future<List<StoredSong>> loadAll() async {
-    if (kIsWeb) return [];
-    final dir = await _songsDir();
-    final indexFile = File('${dir.path}/$_indexFile');
-    if (!await indexFile.exists()) return [];
+    final box = await _getBox();
+    final raw = box.get(_songsKey, defaultValue: <dynamic>[]) as List<dynamic>;
 
     try {
-      final content = await indexFile.readAsString();
-      final list = jsonDecode(content) as List<dynamic>;
-      return list
+      return raw
           .map((e) => StoredSong.fromJson(e as Map<String, dynamic>))
           .toList();
     } catch (_) {
@@ -64,28 +75,19 @@ class SongStorage {
   }
 
   static Future<void> _saveIndex(List<StoredSong> songs) async {
-    final dir = await _songsDir();
-    final indexFile = File('${dir.path}/$_indexFile');
-    final json = jsonEncode(songs.map((s) => s.toJson()).toList());
-    await indexFile.writeAsString(json);
+    final box = await _getBox();
+    await box.put(_songsKey, songs.map((s) => s.toJson()).toList());
   }
 
   static Future<String> saveAudioFile(
       String songId, String originalName, Uint8List bytes) async {
-    final dir = await _songsDir();
     final ext = originalName.contains('.')
         ? originalName.substring(originalName.lastIndexOf('.'))
         : '';
-    final audioFileName = '$songId$ext';
-    final file = File('${dir.path}/$audioFileName');
-    await file.writeAsBytes(bytes);
-    return audioFileName;
+    return '$songId$ext';
   }
 
   static Future<String?> getAudioFilePath(String audioFileName) async {
-    final dir = await _songsDir();
-    final file = File('${dir.path}/$audioFileName');
-    if (await file.exists()) return file.path;
     return null;
   }
 
@@ -104,6 +106,7 @@ class SongStorage {
       id: songs[idx].id,
       name: songs[idx].name,
       audioFileName: songs[idx].audioFileName,
+      audioBytes: songs[idx].audioBytes,
       markers: markers,
     );
     await _saveIndex(songs);
@@ -117,6 +120,7 @@ class SongStorage {
       id: songs[idx].id,
       name: newName,
       audioFileName: songs[idx].audioFileName,
+      audioBytes: songs[idx].audioBytes,
       markers: songs[idx].markers,
     );
     await _saveIndex(songs);
@@ -124,15 +128,6 @@ class SongStorage {
 
   static Future<void> deleteSong(String songId) async {
     final songs = await loadAll();
-    final matches = songs.where((s) => s.id == songId);
-    final song = matches.isEmpty ? null : matches.first;
-    if (song != null) {
-      final dir = await _songsDir();
-      final audioFile = File('${dir.path}/${song.audioFileName}');
-      if (await audioFile.exists()) {
-        await audioFile.delete();
-      }
-    }
     songs.removeWhere((s) => s.id == songId);
     await _saveIndex(songs);
   }

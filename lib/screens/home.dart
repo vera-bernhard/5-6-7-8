@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 import 'package:just_audio/just_audio.dart';
 import '../widgets/waveform_player.dart';
@@ -20,7 +19,6 @@ class _SegmentRange {
 class _SongEntry {
   final String id;
   final String name;
-  final String? path;
   final Uint8List? bytes;
   final String? audioFileName;
   final List<Marker> markers;
@@ -28,7 +26,6 @@ class _SongEntry {
   _SongEntry({
     required this.id,
     required this.name,
-    this.path,
     this.bytes,
     this.audioFileName,
     List<Marker>? markers,
@@ -116,20 +113,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadSavedSongs() async {
-    if (kIsWeb) return;
     final stored = await SongStorage.loadAll();
     final entries = <_SongEntry>[];
     for (final s in stored) {
-      final filePath = await SongStorage.getAudioFilePath(s.audioFileName);
-      if (filePath != null) {
-        entries.add(_SongEntry(
-          id: s.id,
-          name: s.name,
-          path: filePath,
-          audioFileName: s.audioFileName,
-          markers: s.markers,
-        ));
-      }
+      entries.add(_SongEntry(
+        id: s.id,
+        name: s.name,
+        bytes: s.audioBytes,
+        audioFileName: s.audioFileName,
+        markers: s.markers,
+      ));
     }
     if (mounted && entries.isNotEmpty) {
       setState(() {
@@ -144,8 +137,8 @@ class _HomeScreenState extends State<HomeScreen> {
       result = await FilePicker.platform
           .pickFiles(
             type: FileType.audio,
-            withData: kIsWeb,
-            withReadStream: kIsWeb,
+            withData: true,
+            withReadStream: true,
           )
           .timeout(const Duration(seconds: 20));
     } on TimeoutException {
@@ -172,14 +165,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       final file = result.files.first;
-      final safePath = kIsWeb ? null : file.path;
       Uint8List? bytes = file.bytes;
 
       if (bytes == null && file.readStream != null) {
         bytes = await _readBytesFromStream(file.readStream!);
       }
 
-      if (safePath == null && bytes == null) {
+      if (bytes == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -194,28 +186,14 @@ class _HomeScreenState extends State<HomeScreen> {
       if (displayName == null) return; // user cancelled
 
       final songId = DateTime.now().microsecondsSinceEpoch.toString();
-      String? audioFileName;
-      String? persistedPath = safePath;
-
-      // Persist audio file to app storage
-      if (!kIsWeb && bytes != null) {
-        audioFileName =
-            await SongStorage.saveAudioFile(songId, file.name, bytes);
-        persistedPath = await SongStorage.getAudioFilePath(audioFileName);
-      } else if (!kIsWeb && safePath != null) {
-        // Copy from original path to app storage
-        final fileBytes = await File(safePath).readAsBytes();
-        audioFileName =
-            await SongStorage.saveAudioFile(songId, file.name, fileBytes);
-        persistedPath = await SongStorage.getAudioFilePath(audioFileName);
-      }
+      final audioFileName =
+          await SongStorage.saveAudioFile(songId, file.name, bytes);
 
       final song = _SongEntry(
         id: songId,
         name: displayName,
-        path: persistedPath,
         bytes: bytes,
-        audioFileName: audioFileName ?? file.name,
+        audioFileName: audioFileName,
       );
 
       setState(() {
@@ -224,15 +202,13 @@ class _HomeScreenState extends State<HomeScreen> {
         _activeTab = _HomeTab.player;
       });
 
-      // Persist song metadata
-      if (!kIsWeb && audioFileName != null) {
-        await SongStorage.addSong(StoredSong(
-          id: song.id,
-          name: song.name,
-          audioFileName: audioFileName,
-          markers: song.markers,
-        ));
-      }
+      await SongStorage.addSong(StoredSong(
+        id: song.id,
+        name: song.name,
+        audioFileName: audioFileName,
+        audioBytes: bytes,
+        markers: song.markers,
+      ));
 
       await _loadSong(song);
     } catch (_) {
@@ -334,8 +310,6 @@ class _HomeScreenState extends State<HomeScreen> {
         } else {
           throw StateError('No browser-loadable bytes were provided.');
         }
-      } else if (song.path != null) {
-        await _player.setFilePath(song.path!);
       } else if (song.bytes != null) {
         final source = AudioSource.uri(
           Uri.dataFromBytes(
@@ -470,9 +444,7 @@ class _HomeScreenState extends State<HomeScreen> {
       song.markers.add(marker);
       song.markers.sort((a, b) => a.seconds.compareTo(b.seconds));
     });
-    if (!kIsWeb) {
-      SongStorage.updateMarkers(song.id, song.markers);
-    }
+    SongStorage.updateMarkers(song.id, song.markers);
   }
 
   Future<void> _playFromMarker(Marker marker, {int leadInSeconds = 0}) async {
@@ -557,9 +529,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       song.markers.removeWhere((m) => m.id == marker.id);
     });
-    if (!kIsWeb) {
-      SongStorage.updateMarkers(song.id, song.markers);
-    }
+    SongStorage.updateMarkers(song.id, song.markers);
   }
 
   Future<void> _renameSong(_SongEntry song) async {
@@ -599,16 +569,13 @@ class _HomeScreenState extends State<HomeScreen> {
       _songs[idx] = _SongEntry(
         id: song.id,
         name: newName,
-        path: song.path,
         bytes: song.bytes,
         audioFileName: song.audioFileName,
         markers: song.markers,
       );
     });
 
-    if (!kIsWeb) {
-      SongStorage.renameSong(song.id, newName);
-    }
+    SongStorage.renameSong(song.id, newName);
   }
 
   Future<void> _deleteSongFromLibrary(_SongEntry song) async {
@@ -649,9 +616,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _songs.removeWhere((s) => s.id == song.id);
     });
 
-    if (!kIsWeb) {
-      SongStorage.deleteSong(song.id);
-    }
+    SongStorage.deleteSong(song.id);
   }
 
   String _formatSeconds(double s) {
