@@ -60,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Duration _duration = Duration.zero;
   bool _isPlaying = false;
   int _selectedLeadInSeconds = 0;
+  bool _isPreparingUpload = false;
 
   bool _segmentStopping = false;
 
@@ -163,7 +164,13 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    var showingUploadLoader = false;
     try {
+      if (mounted) {
+        setState(() => _isPreparingUpload = true);
+      }
+      showingUploadLoader = true;
+
       final file = result.files.first;
       Uint8List? bytes = file.bytes;
 
@@ -173,6 +180,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (bytes == null) {
         if (mounted) {
+          setState(() => _isPreparingUpload = false);
+        }
+        showingUploadLoader = false;
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
                 content: Text('Could not read the selected audio file.')),
@@ -180,6 +191,11 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         return;
       }
+
+      if (mounted) {
+        setState(() => _isPreparingUpload = false);
+      }
+      showingUploadLoader = false;
 
       // Ask user for a display name
       final displayName = await _askForDisplayName(file.name);
@@ -212,6 +228,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
       await _loadSong(song);
     } catch (_) {
+      if (showingUploadLoader && mounted) {
+        setState(() => _isPreparingUpload = false);
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not process the selected file.')),
@@ -700,11 +719,18 @@ class _HomeScreenState extends State<HomeScreen> {
           child: SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: _pickAudio,
-              icon: const Icon(Icons.upload_file),
-              label: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 14),
-                child: Text('Upload Song'),
+              onPressed: _isPreparingUpload ? null : _pickAudio,
+              icon: _isPreparingUpload
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.upload_file),
+              label: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                child: Text(
+                    _isPreparingUpload ? 'Preparing Upload...' : 'Upload Song'),
               ),
             ),
           ),
