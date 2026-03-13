@@ -611,6 +611,49 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _deleteSongFromLibrary(_SongEntry song) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete song?'),
+          content: Text(
+            'Do you really want to delete "${song.name}" with '
+            '${song.markers.length} marker(s)? This cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    if (_activeSongId == song.id) {
+      await _player.stop();
+      setState(() {
+        _activeSongId = null;
+        _activeTab = _HomeTab.library;
+      });
+    }
+
+    setState(() {
+      _songs.removeWhere((s) => s.id == song.id);
+    });
+
+    if (!kIsWeb) {
+      SongStorage.deleteSong(song.id);
+    }
+  }
+
   String _formatSeconds(double s) {
     final total = s.round();
     final m = total ~/ 60;
@@ -673,6 +716,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             tooltip: 'Rename',
                             icon: const Icon(Icons.edit_outlined),
                             onPressed: () => _renameSong(song),
+                          ),
+                          IconButton(
+                            tooltip: 'Delete',
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => _deleteSongFromLibrary(song),
                           ),
                           const Icon(Icons.chevron_right),
                         ],
