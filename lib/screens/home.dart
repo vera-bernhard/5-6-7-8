@@ -16,6 +16,18 @@ class _SegmentRange {
   _SegmentRange(this.start, this.end);
 }
 
+class _ShuffleSegmentSelection {
+  final Timestamp startTimestamp;
+  final double stopAt;
+  final Set<String> timestampIds;
+
+  _ShuffleSegmentSelection({
+    required this.startTimestamp,
+    required this.stopAt,
+    required this.timestampIds,
+  });
+}
+
 class _SongEntry {
   final String id;
   final String name;
@@ -547,30 +559,56 @@ class _HomeScreenState extends State<HomeScreen> {
     return song.timestamps.any((m) => ids.contains(m.id));
   }
 
+  _ShuffleSegmentSelection? _selectShuffleSegment(_SongEntry song) {
+    final shuffleIds = _shuffleIdsForSong(song.id);
+    final sorted = List<Timestamp>.from(song.timestamps)
+      ..sort((a, b) => a.seconds.compareTo(b.seconds));
+    final enabledIndices = <int>[];
+
+    for (var index = 0; index < sorted.length; index++) {
+      if (shuffleIds.contains(sorted[index].id)) {
+        enabledIndices.add(index);
+      }
+    }
+
+    if (enabledIndices.isEmpty) return null;
+
+    final enabledSelectionIndex = math.Random().nextInt(enabledIndices.length);
+    final startIndex = enabledIndices[enabledSelectionIndex];
+    final nextEnabledIndex = enabledSelectionIndex < enabledIndices.length - 1
+        ? enabledIndices[enabledSelectionIndex + 1]
+        : sorted.length;
+    final stopAt = nextEnabledIndex < sorted.length
+        ? sorted[nextEnabledIndex].seconds
+        : (_duration.inMilliseconds / 1000.0);
+    final timestampIds = sorted
+        .sublist(startIndex, nextEnabledIndex)
+        .map((timestamp) => timestamp.id)
+        .toSet();
+
+    return _ShuffleSegmentSelection(
+      startTimestamp: sorted[startIndex],
+      stopAt: stopAt,
+      timestampIds: timestampIds,
+    );
+  }
+
   Future<void> _playShuffleSegment() async {
     final song = _activeSong;
     if (song == null) return;
 
-    final shuffleIds = _shuffleIdsForSong(song.id);
-    final shuffledTimestamps = List<Timestamp>.from(song.timestamps)
-      ..sort((a, b) => a.seconds.compareTo(b.seconds));
-    final enabled =
-        shuffledTimestamps.where((m) => shuffleIds.contains(m.id)).toList();
+    final selection = _selectShuffleSegment(song);
+    if (selection == null) return;
 
-    if (enabled.isEmpty) return;
-
-    final selected = enabled[math.Random().nextInt(enabled.length)];
-    final selectedIndex = enabled.indexWhere((m) => m.id == selected.id);
-    final stopAt = selectedIndex < enabled.length - 1
-        ? enabled[selectedIndex + 1].seconds
-        : (_duration.inMilliseconds / 1000.0);
-    final startSeconds =
-        math.max(0.0, selected.seconds - _selectedLeadInSeconds.toDouble());
+    final startSeconds = math.max(0.0,
+        selection.startTimestamp.seconds - _selectedLeadInSeconds.toDouble());
 
     setState(() {
       _segmentStopping = false;
-      _playbackStopAtSeconds = stopAt;
-      _segmentTimestampIds.clear();
+      _playbackStopAtSeconds = selection.stopAt;
+      _segmentTimestampIds
+        ..clear()
+        ..addAll(selection.timestampIds);
     });
 
     await _player.seek(Duration(milliseconds: (startSeconds * 1000).round()));
