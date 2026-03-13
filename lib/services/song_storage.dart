@@ -1,20 +1,20 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import '../models/marker.dart';
+import '../models/timestamp.dart';
 
 class StoredSong {
   final String id;
   final String name;
   final String audioFileName;
   final Uint8List audioBytes;
-  final List<Marker> markers;
+  final List<Timestamp> timestamps;
 
   StoredSong({
     required this.id,
     required this.name,
     required this.audioFileName,
     required this.audioBytes,
-    required this.markers,
+    required this.timestamps,
   });
 
   Map<String, dynamic> toJson() => {
@@ -22,7 +22,8 @@ class StoredSong {
         'name': name,
         'audioFileName': audioFileName,
         'audioBytes': audioBytes,
-        'markers': markers.map((m) => m.toJson()).toList(),
+        'timestamps':
+            timestamps.map((timestamp) => timestamp.toJson()).toList(),
       };
 
   factory StoredSong.fromJson(Map<String, dynamic> json) => StoredSong(
@@ -30,8 +31,9 @@ class StoredSong {
         name: json['name'] as String,
         audioFileName: json['audioFileName'] as String,
         audioBytes: _parseAudioBytes(json['audioBytes']),
-        markers: (json['markers'] as List<dynamic>)
-            .map((m) => Marker.fromJson(m as Map<String, dynamic>))
+        timestamps: ((json['timestamps'] ?? json['markers']) as List<dynamic>)
+            .map((timestamp) =>
+                Timestamp.fromJson(timestamp as Map<String, dynamic>))
             .toList(),
       );
 
@@ -98,7 +100,8 @@ class SongStorage {
     await _saveIndex(songs);
   }
 
-  static Future<void> updateMarkers(String songId, List<Marker> markers) async {
+  static Future<void> updateTimestamps(
+      String songId, List<Timestamp> timestamps) async {
     final songs = await loadAll();
     final idx = songs.indexWhere((s) => s.id == songId);
     if (idx == -1) return;
@@ -107,7 +110,7 @@ class SongStorage {
       name: songs[idx].name,
       audioFileName: songs[idx].audioFileName,
       audioBytes: songs[idx].audioBytes,
-      markers: markers,
+      timestamps: timestamps,
     );
     await _saveIndex(songs);
   }
@@ -121,7 +124,7 @@ class SongStorage {
       name: newName,
       audioFileName: songs[idx].audioFileName,
       audioBytes: songs[idx].audioBytes,
-      markers: songs[idx].markers,
+      timestamps: songs[idx].timestamps,
     );
     await _saveIndex(songs);
   }

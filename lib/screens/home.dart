@@ -5,7 +5,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:just_audio/just_audio.dart';
 import '../widgets/waveform_player.dart';
-import '../models/marker.dart';
+import '../models/timestamp.dart';
 import '../services/song_storage.dart';
 
 enum _HomeTab { library, player }
@@ -21,22 +21,22 @@ class _SongEntry {
   final String name;
   final Uint8List? bytes;
   final String? audioFileName;
-  final List<Marker> markers;
+  final List<Timestamp> timestamps;
 
   _SongEntry({
     required this.id,
     required this.name,
     this.bytes,
     this.audioFileName,
-    List<Marker>? markers,
-  }) : markers = markers ?? <Marker>[];
+    List<Timestamp>? timestamps,
+  }) : timestamps = timestamps ?? <Timestamp>[];
 }
 
-class _MarkerDialogResult {
+class _TimestampDialogResult {
   final String label;
   final double seconds;
 
-  _MarkerDialogResult({required this.label, required this.seconds});
+  _TimestampDialogResult({required this.label, required this.seconds});
 }
 
 class HomeScreen extends StatefulWidget {
@@ -65,8 +65,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _segmentStopping = false;
   double? _playbackStopAtSeconds;
 
-  final Set<String> _segmentMarkerIds = {};
-  final Map<String, Set<String>> _shuffleMarkerIdsBySong = {};
+  final Set<String> _segmentTimestampIds = {};
+  final Map<String, Set<String>> _shuffleTimestampIdsBySong = {};
 
   _SongEntry? get _activeSong {
     if (_activeSongId == null) return null;
@@ -77,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Set<String> _shuffleIdsForSong(String songId) {
-    return _shuffleMarkerIdsBySong.putIfAbsent(songId, () => <String>{});
+    return _shuffleTimestampIdsBySong.putIfAbsent(songId, () => <String>{});
   }
 
   @override
@@ -129,7 +129,7 @@ class _HomeScreenState extends State<HomeScreen> {
         name: s.name,
         bytes: s.audioBytes,
         audioFileName: s.audioFileName,
-        markers: s.markers,
+        timestamps: s.timestamps,
       ));
     }
     if (mounted && entries.isNotEmpty) {
@@ -230,7 +230,7 @@ class _HomeScreenState extends State<HomeScreen> {
         name: song.name,
         audioFileName: audioFileName,
         audioBytes: bytes,
-        markers: song.markers,
+        timestamps: song.timestamps,
       ));
 
       await _loadSong(song);
@@ -319,7 +319,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _isPlaying = false;
       _segmentStopping = false;
       _playbackStopAtSeconds = null;
-      _segmentMarkerIds.clear();
+      _segmentTimestampIds.clear();
     });
 
     try {
@@ -377,16 +377,16 @@ class _HomeScreenState extends State<HomeScreen> {
     await _player.seek(target);
   }
 
-  Future<void> _addMarkerAtCurrentTime() async {
+  Future<void> _addTimestampAtCurrentTime() async {
     final song = _activeSong;
     if (song == null) return;
 
     final labelController = TextEditingController();
     final timeController = TextEditingController(
-      text: _formatMarkerInputTime(_position.inMilliseconds / 1000),
+      text: _formatTimestampInputTime(_position.inMilliseconds / 1000),
     );
 
-    final result = await showDialog<_MarkerDialogResult>(
+    final result = await showDialog<_TimestampDialogResult>(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -398,7 +398,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 controller: labelController,
                 autofocus: true,
                 decoration: const InputDecoration(
-                  labelText: 'Marker name',
+                  labelText: 'Timestamp name',
                   hintText: 'e.g. Chorus start',
                 ),
               ),
@@ -422,10 +422,10 @@ class _HomeScreenState extends State<HomeScreen> {
             FilledButton(
               onPressed: () {
                 final parsedSeconds =
-                    _parseMarkerInputTime(timeController.text.trim());
+                    _parseTimestampInputTime(timeController.text.trim());
                 if (parsedSeconds == null || parsedSeconds < 0) {
                   Navigator.of(context).pop(
-                    _MarkerDialogResult(
+                    _TimestampDialogResult(
                       label: '__INVALID_TIME__',
                       seconds: -1,
                     ),
@@ -434,7 +434,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 }
 
                 Navigator.of(context).pop(
-                  _MarkerDialogResult(
+                  _TimestampDialogResult(
                     label: labelController.text.trim(),
                     seconds: parsedSeconds,
                   ),
@@ -461,39 +461,40 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    final marker = Marker(
+    final timestamp = Timestamp(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       seconds: result.seconds,
       label: result.label,
     );
 
     setState(() {
-      song.markers.add(marker);
-      song.markers.sort((a, b) => a.seconds.compareTo(b.seconds));
+      song.timestamps.add(timestamp);
+      song.timestamps.sort((a, b) => a.seconds.compareTo(b.seconds));
     });
-    SongStorage.updateMarkers(song.id, song.markers);
+    SongStorage.updateTimestamps(song.id, song.timestamps);
   }
 
-  Future<void> _playFromMarker(Marker marker, {int leadInSeconds = 0}) async {
+  Future<void> _playFromTimestamp(Timestamp timestamp,
+      {int leadInSeconds = 0}) async {
     setState(() {
       _segmentStopping = false;
       _playbackStopAtSeconds = null;
-      _segmentMarkerIds.clear();
+      _segmentTimestampIds.clear();
     });
     final startSeconds =
-        math.max(0.0, marker.seconds - leadInSeconds.toDouble());
+        math.max(0.0, timestamp.seconds - leadInSeconds.toDouble());
     await _player.seek(Duration(milliseconds: (startSeconds * 1000).round()));
     await _player.play();
   }
 
   _SegmentRange? _computeSegmentRange() {
     final song = _activeSong;
-    if (song == null || _segmentMarkerIds.isEmpty) return null;
+    if (song == null || _segmentTimestampIds.isEmpty) return null;
 
-    final sorted = List<Marker>.from(song.markers)
+    final sorted = List<Timestamp>.from(song.timestamps)
       ..sort((a, b) => a.seconds.compareTo(b.seconds));
     final selectedSorted =
-        sorted.where((m) => _segmentMarkerIds.contains(m.id)).toList();
+        sorted.where((m) => _segmentTimestampIds.contains(m.id)).toList();
     if (selectedSorted.isEmpty) return null;
 
     final firstSelected = selectedSorted.first;
@@ -506,18 +507,18 @@ class _HomeScreenState extends State<HomeScreen> {
     return _SegmentRange(firstSelected.seconds, end);
   }
 
-  void _toggleSegmentMode(Marker marker) {
+  void _toggleSegmentMode(Timestamp timestamp) {
     setState(() {
-      if (_segmentMarkerIds.contains(marker.id)) {
-        _segmentMarkerIds.clear();
+      if (_segmentTimestampIds.contains(timestamp.id)) {
+        _segmentTimestampIds.clear();
       } else {
-        _segmentMarkerIds.add(marker.id);
+        _segmentTimestampIds.add(timestamp.id);
       }
       _segmentStopping = false;
     });
   }
 
-  Future<void> _playSegmentFromMarker() async {
+  Future<void> _playSegmentFromTimestamp() async {
     final range = _computeSegmentRange();
     if (range == null) return;
     final startSeconds =
@@ -530,20 +531,20 @@ class _HomeScreenState extends State<HomeScreen> {
     await _player.play();
   }
 
-  void _toggleShuffleMarker(_SongEntry song, Marker marker) {
+  void _toggleShuffleTimestamp(_SongEntry song, Timestamp timestamp) {
     final shuffleIds = _shuffleIdsForSong(song.id);
     setState(() {
-      if (shuffleIds.contains(marker.id)) {
-        shuffleIds.remove(marker.id);
+      if (shuffleIds.contains(timestamp.id)) {
+        shuffleIds.remove(timestamp.id);
       } else {
-        shuffleIds.add(marker.id);
+        shuffleIds.add(timestamp.id);
       }
     });
   }
 
-  bool _hasShuffleEnabledMarkers(_SongEntry song) {
+  bool _hasShuffleEnabledTimestamps(_SongEntry song) {
     final ids = _shuffleIdsForSong(song.id);
-    return song.markers.any((m) => ids.contains(m.id));
+    return song.timestamps.any((m) => ids.contains(m.id));
   }
 
   Future<void> _playShuffleSegment() async {
@@ -551,10 +552,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (song == null) return;
 
     final shuffleIds = _shuffleIdsForSong(song.id);
-    final shuffledMarkers = List<Marker>.from(song.markers)
+    final shuffledTimestamps = List<Timestamp>.from(song.timestamps)
       ..sort((a, b) => a.seconds.compareTo(b.seconds));
     final enabled =
-        shuffledMarkers.where((m) => shuffleIds.contains(m.id)).toList();
+        shuffledTimestamps.where((m) => shuffleIds.contains(m.id)).toList();
 
     if (enabled.isEmpty) return;
 
@@ -569,23 +570,23 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _segmentStopping = false;
       _playbackStopAtSeconds = stopAt;
-      _segmentMarkerIds.clear();
+      _segmentTimestampIds.clear();
     });
 
     await _player.seek(Duration(milliseconds: (startSeconds * 1000).round()));
     await _player.play();
   }
 
-  Future<void> _deleteMarker(_SongEntry song, Marker marker) async {
+  Future<void> _deleteTimestamp(_SongEntry song, Timestamp timestamp) async {
     final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Delete marker?'),
+          title: const Text('Delete timestamp?'),
           content: Text(
-            marker.label.isEmpty
-                ? 'This marker will be removed permanently.'
-                : '"${marker.label}" will be removed permanently.',
+            timestamp.label.isEmpty
+                ? 'This timestamp will be removed permanently.'
+                : '"${timestamp.label}" will be removed permanently.',
           ),
           actions: [
             TextButton(
@@ -604,10 +605,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (shouldDelete != true) return;
 
     setState(() {
-      song.markers.removeWhere((m) => m.id == marker.id);
+      song.timestamps.removeWhere((m) => m.id == timestamp.id);
     });
-    _shuffleIdsForSong(song.id).remove(marker.id);
-    SongStorage.updateMarkers(song.id, song.markers);
+    _shuffleIdsForSong(song.id).remove(timestamp.id);
+    SongStorage.updateTimestamps(song.id, song.timestamps);
   }
 
   Future<void> _renameSong(_SongEntry song) async {
@@ -649,7 +650,7 @@ class _HomeScreenState extends State<HomeScreen> {
         name: newName,
         bytes: song.bytes,
         audioFileName: song.audioFileName,
-        markers: song.markers,
+        timestamps: song.timestamps,
       );
     });
 
@@ -664,7 +665,7 @@ class _HomeScreenState extends State<HomeScreen> {
           title: const Text('Delete song?'),
           content: Text(
             'Do you really want to delete "${song.name}" with '
-            '${song.markers.length} marker(s)? This cannot be undone.',
+            '${song.timestamps.length} timestamp(s)? This cannot be undone.',
           ),
           actions: [
             TextButton(
@@ -694,7 +695,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _songs.removeWhere((s) => s.id == song.id);
     });
 
-    _shuffleMarkerIdsBySong.remove(song.id);
+    _shuffleTimestampIdsBySong.remove(song.id);
 
     SongStorage.deleteSong(song.id);
   }
@@ -706,14 +707,14 @@ class _HomeScreenState extends State<HomeScreen> {
     return '$m:${sec.toString().padLeft(2, '0')}';
   }
 
-  String _formatMarkerInputTime(double seconds) {
+  String _formatTimestampInputTime(double seconds) {
     final total = seconds.round();
     final m = total ~/ 60;
     final sec = total % 60;
     return '$m:${sec.toString().padLeft(2, '0')}';
   }
 
-  double? _parseMarkerInputTime(String raw) {
+  double? _parseTimestampInputTime(String raw) {
     if (raw.isEmpty) return null;
 
     if (raw.contains(':')) {
@@ -752,7 +753,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     return ListTile(
                       title: Text(song.name),
                       subtitle: Text(
-                        '${song.markers.length} marker(s)',
+                        '${song.timestamps.length} timestamp(s)',
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -803,7 +804,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildPlayerView() {
     final song = _activeSong;
     final hasAudio = song != null && _loadError == null;
-    final hasShuffleEnabled = song != null && _hasShuffleEnabledMarkers(song);
+    final hasShuffleEnabled =
+        song != null && _hasShuffleEnabledTimestamps(song);
 
     if (song == null) {
       return const Center(
@@ -842,11 +844,11 @@ class _HomeScreenState extends State<HomeScreen> {
           child: SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: hasAudio ? _addMarkerAtCurrentTime : null,
+              onPressed: hasAudio ? _addTimestampAtCurrentTime : null,
               icon: const Icon(Icons.bookmark_add),
               label: const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('Save Marker'),
+                child: Text('Save Timestamp'),
               ),
             ),
           ),
@@ -904,30 +906,35 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Theme.of(context).colorScheme.outlineVariant),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: song.markers.isEmpty
-                ? const Center(child: Text('No markers yet.'))
+            child: song.timestamps.isEmpty
+                ? const Center(child: Text('No timestamps yet.'))
                 : ListView.separated(
-                    itemCount: song.markers.length,
+                    itemCount: song.timestamps.length,
                     separatorBuilder: (_, i) {
-                      if (i < song.markers.length - 1 &&
-                          _segmentMarkerIds.contains(song.markers[i].id) &&
-                          _segmentMarkerIds.contains(song.markers[i + 1].id)) {
+                      if (i < song.timestamps.length - 1 &&
+                          _segmentTimestampIds
+                              .contains(song.timestamps[i].id) &&
+                          _segmentTimestampIds
+                              .contains(song.timestamps[i + 1].id)) {
                         return const SizedBox.shrink();
                       }
                       return const Divider(height: 1);
                     },
                     itemBuilder: (context, i) {
-                      final marker = song.markers[i];
+                      final timestamp = song.timestamps[i];
                       final isShuffleEnabled =
-                          _shuffleIdsForSong(song.id).contains(marker.id);
-                      final title = marker.label.isEmpty
-                          ? 'Marker ${i + 1}'
-                          : marker.label;
-                      final isSegment = _segmentMarkerIds.contains(marker.id);
+                          _shuffleIdsForSong(song.id).contains(timestamp.id);
+                      final title = timestamp.label.isEmpty
+                          ? 'Timestamp ${i + 1}'
+                          : timestamp.label;
+                      final isSegment =
+                          _segmentTimestampIds.contains(timestamp.id);
                       final prevSelected = i > 0 &&
-                          _segmentMarkerIds.contains(song.markers[i - 1].id);
-                      final nextSelected = i < song.markers.length - 1 &&
-                          _segmentMarkerIds.contains(song.markers[i + 1].id);
+                          _segmentTimestampIds
+                              .contains(song.timestamps[i - 1].id);
+                      final nextSelected = i < song.timestamps.length - 1 &&
+                          _segmentTimestampIds
+                              .contains(song.timestamps[i + 1].id);
 
                       final range = _computeSegmentRange();
 
@@ -948,7 +955,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
 
                       final isFirstInSegment = isSegment && !prevSelected;
-                      const markerLeadingWidth = 40.0;
+                      const timestampLeadingWidth = 40.0;
                       final segmentRangeLabel = (isFirstInSegment &&
                               range != null)
                           ? '${_formatSeconds(range.start)} → ${_formatSeconds(range.end)}'
@@ -956,20 +963,21 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       final tile = ListTile(
                         dense: true,
-                        minLeadingWidth: markerLeadingWidth,
+                        minLeadingWidth: timestampLeadingWidth,
                         horizontalTitleGap: 8,
-                        onLongPress:
-                            hasAudio ? () => _toggleSegmentMode(marker) : null,
+                        onLongPress: hasAudio
+                            ? () => _toggleSegmentMode(timestamp)
+                            : null,
                         leading: isSegment && !isFirstInSegment
-                            ? const SizedBox(width: markerLeadingWidth)
+                            ? const SizedBox(width: timestampLeadingWidth)
                             : SizedBox(
-                                width: markerLeadingWidth,
-                                height: markerLeadingWidth,
+                                width: timestampLeadingWidth,
+                                height: timestampLeadingWidth,
                                 child: IconButton(
                                   padding: EdgeInsets.zero,
                                   constraints: const BoxConstraints.tightFor(
-                                    width: markerLeadingWidth,
-                                    height: markerLeadingWidth,
+                                    width: timestampLeadingWidth,
+                                    height: timestampLeadingWidth,
                                   ),
                                   icon: Icon(
                                     isFirstInSegment
@@ -979,10 +987,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                   onPressed: hasAudio
                                       ? () {
                                           if (isFirstInSegment) {
-                                            _playSegmentFromMarker();
+                                            _playSegmentFromTimestamp();
                                           } else {
-                                            _playFromMarker(
-                                              marker,
+                                            _playFromTimestamp(
+                                              timestamp,
                                               leadInSeconds:
                                                   _selectedLeadInSeconds,
                                             );
@@ -1011,23 +1019,24 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ],
                               )
                             : Text(title),
-                        subtitle: Text(_formatSeconds(marker.seconds)),
+                        subtitle: Text(_formatSeconds(timestamp.seconds)),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
-                              tooltip: 'Shuffle marker',
+                              tooltip: 'Shuffle timestamp',
                               icon: const Icon(Icons.shuffle),
                               color: isShuffleEnabled
                                   ? Theme.of(context).colorScheme.primary
                                   : Theme.of(context).colorScheme.outline,
                               onPressed: () =>
-                                  _toggleShuffleMarker(song, marker),
+                                  _toggleShuffleTimestamp(song, timestamp),
                             ),
                             IconButton(
-                              tooltip: 'Delete marker',
+                              tooltip: 'Delete timestamp',
                               icon: const Icon(Icons.delete_outline),
-                              onPressed: () => _deleteMarker(song, marker),
+                              onPressed: () =>
+                                  _deleteTimestamp(song, timestamp),
                             ),
                           ],
                         ),

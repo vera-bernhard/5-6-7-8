@@ -8,7 +8,7 @@ choreography sections quickly.
 - Import audio files (`mp3`, `wav`, `m4a`, `aac`, `ogg`)
 - Playback with seek controls and a horizontal waveform-style timeline
 - Create named timestamps at the current playback position
-- Tap timestamp: jump to marker using selected default lead-in (`0s`, `3s`, `5s`)
+- Tap timestamp: jump to timestamp using selected default lead-in (`0s`, `3s`, `5s`)
 - Long-press timestamp: choose lead-in per jump (`0s`, `3s`, `5s`)
 
 ## Run
