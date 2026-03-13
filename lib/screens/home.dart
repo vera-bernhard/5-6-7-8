@@ -1151,7 +1151,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('5-6-7-8'),
+        title: const Text('5-6-7-8 beta'),
       ),
       body: Column(
         children: [
