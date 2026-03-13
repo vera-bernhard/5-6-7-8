@@ -60,6 +60,15 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final AudioPlayer _player;
+  static const List<String> _iosAudioExtensions = <String>[
+    'aac',
+    'm4a',
+    'mid',
+    'midi',
+    'mp3',
+    'ogg',
+    'wav',
+  ];
   static const List<int> _leadInSecondOptions = <int>[0, 1, 3, 5];
 
   final List<_SongEntry> _songs = <_SongEntry>[];
@@ -154,9 +163,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _pickAudio() async {
     FilePickerResult? result;
     try {
+      final isIosFileImport =
+          !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
       result = await FilePicker.platform
           .pickFiles(
-            type: FileType.audio,
+            type: isIosFileImport ? FileType.custom : FileType.audio,
+            allowedExtensions: isIosFileImport ? _iosAudioExtensions : null,
             withData: true,
             withReadStream: true,
           )
