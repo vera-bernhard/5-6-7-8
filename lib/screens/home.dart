@@ -78,7 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
     'ogg',
     'wav',
   };
-  static const List<int> _leadInSecondOptions = <int>[0, 1, 3, 5];
+  static const List<int> _leadInSecondOptions = <int>[0, 1, 3, 5, 8, 15];
 
   final List<_SongEntry> _songs = <_SongEntry>[];
   String? _activeSongId;
