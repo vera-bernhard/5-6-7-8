@@ -8,7 +8,10 @@ class WaveformPlayer extends StatelessWidget {
   final bool enabled;
   final VoidCallback onPlayPause;
   final VoidCallback onShufflePlay;
+  final VoidCallback onShuffleReset;
   final bool shufflePlayEnabled;
+  final int shuffleSectionsTotal;
+  final int shuffleSectionsRemaining;
   final ValueChanged<Duration> onSeek;
   final String? waveformSeed;
 
@@ -20,7 +23,10 @@ class WaveformPlayer extends StatelessWidget {
     required this.enabled,
     required this.onPlayPause,
     required this.onShufflePlay,
+    required this.onShuffleReset,
     required this.shufflePlayEnabled,
+    required this.shuffleSectionsTotal,
+    required this.shuffleSectionsRemaining,
     required this.onSeek,
     this.waveformSeed,
   });
@@ -63,10 +69,13 @@ class WaveformPlayer extends StatelessWidget {
               label: Text(isPlaying ? 'Pause' : 'Play'),
             ),
             const SizedBox(width: 10),
-            FilledButton.icon(
-              onPressed: enabled && shufflePlayEnabled ? onShufflePlay : null,
-              icon: const Icon(Icons.shuffle),
-              label: const Text('Random'),
+            _ShuffleRadialButton(
+              enabled: enabled,
+              shufflePlayEnabled: shufflePlayEnabled,
+              totalSections: shuffleSectionsTotal,
+              remainingSections: shuffleSectionsRemaining,
+              onTap: onShufflePlay,
+              onLongPress: onShuffleReset,
             ),
           ],
         ),
@@ -83,6 +92,130 @@ class WaveformPlayer extends StatelessWidget {
       return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
     }
     return '$m:${s.toString().padLeft(2, '0')}';
+  }
+}
+
+class _ShuffleRadialButton extends StatelessWidget {
+  final bool enabled;
+  final bool shufflePlayEnabled;
+  final int totalSections;
+  final int remainingSections;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _ShuffleRadialButton({
+    required this.enabled,
+    required this.shufflePlayEnabled,
+    required this.totalSections,
+    required this.remainingSections,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final canTap = enabled && shufflePlayEnabled;
+    final canLongPress = enabled && totalSections > 0;
+
+    return Tooltip(
+      message:
+          'Random: $remainingSections/$totalSections left\nLong press to reset',
+      child: Material(
+        color: Colors.transparent,
+        child: InkResponse(
+          onTap: canTap ? onTap : null,
+          onLongPress: canLongPress ? onLongPress : null,
+          radius: 30,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: 56,
+            height: 56,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CustomPaint(
+                  size: const Size.square(56),
+                  painter: _ShuffleRadialPainter(
+                    totalSections: totalSections,
+                    remainingSections: remainingSections,
+                    filledColor: Theme.of(context).colorScheme.primary,
+                    emptyColor:
+                        Theme.of(context).colorScheme.surfaceContainerHighest,
+                    fallbackTrackColor:
+                        Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                Icon(
+                  Icons.shuffle,
+                  size: 22,
+                  color: canTap
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.outline,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShuffleRadialPainter extends CustomPainter {
+  final int totalSections;
+  final int remainingSections;
+  final Color filledColor;
+  final Color emptyColor;
+  final Color fallbackTrackColor;
+
+  _ShuffleRadialPainter({
+    required this.totalSections,
+    required this.remainingSections,
+    required this.filledColor,
+    required this.emptyColor,
+    required this.fallbackTrackColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = (math.min(size.width, size.height) / 2) - 4;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+
+    final basePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 5
+      ..strokeCap = StrokeCap.round
+      ..color = fallbackTrackColor;
+
+    if (totalSections <= 0) {
+      canvas.drawArc(rect, -math.pi / 2, math.pi * 2, false, basePaint);
+      return;
+    }
+
+    final clampedRemaining = remainingSections.clamp(0, totalSections);
+    final perSection = (math.pi * 2) / totalSections;
+    final gap = math.min(0.22, perSection * 0.35);
+    final sweep = math.max(0.02, perSection - gap);
+
+    for (var i = 0; i < totalSections; i++) {
+      final start = (-math.pi / 2) + (i * perSection) + (gap / 2);
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5
+        ..strokeCap = StrokeCap.round
+        ..color = i < clampedRemaining ? filledColor : emptyColor;
+      canvas.drawArc(rect, start, sweep, false, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ShuffleRadialPainter oldDelegate) {
+    return oldDelegate.totalSections != totalSections ||
+        oldDelegate.remainingSections != remainingSections ||
+        oldDelegate.filledColor != filledColor ||
+        oldDelegate.emptyColor != emptyColor ||
+        oldDelegate.fallbackTrackColor != fallbackTrackColor;
   }
 }
 

@@ -97,6 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final Set<String> _segmentTimestampIds = {};
   final Map<String, Set<String>> _shuffleTimestampIdsBySong = {};
+  final Map<String, Set<String>> _playedShuffleTimestampIdsBySong = {};
 
   _SongEntry? get _activeSong {
     if (_activeSongId == null) return null;
@@ -108,6 +109,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Set<String> _shuffleIdsForSong(String songId) {
     return _shuffleTimestampIdsBySong.putIfAbsent(songId, () => <String>{});
+  }
+
+  Set<String> _playedShuffleIdsForSong(String songId) {
+    return _playedShuffleTimestampIdsBySong.putIfAbsent(
+      songId,
+      () => <String>{},
+    );
   }
 
   @override
@@ -577,38 +585,70 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _toggleShuffleTimestamp(_SongEntry song, Timestamp timestamp) {
     final shuffleIds = _shuffleIdsForSong(song.id);
+    final playedShuffleIds = _playedShuffleIdsForSong(song.id);
     setState(() {
       if (shuffleIds.contains(timestamp.id)) {
         shuffleIds.remove(timestamp.id);
+        playedShuffleIds.remove(timestamp.id);
       } else {
         shuffleIds.add(timestamp.id);
+        playedShuffleIds.remove(timestamp.id);
       }
     });
   }
 
-  bool _hasShuffleEnabledTimestamps(_SongEntry song) {
+  void _resetShuffleSegments(_SongEntry song) {
+    setState(() {
+      _playedShuffleIdsForSong(song.id).clear();
+      _segmentTimestampIds.clear();
+    });
+  }
+
+  int _shuffleSectionCount(_SongEntry song) {
     final ids = _shuffleIdsForSong(song.id);
-    return song.timestamps.any((m) => ids.contains(m.id));
+    return song.timestamps
+        .where((timestamp) => ids.contains(timestamp.id))
+        .length;
+  }
+
+  int _remainingShuffleSectionCount(_SongEntry song) {
+    final ids = _shuffleIdsForSong(song.id);
+    final played = _playedShuffleIdsForSong(song.id);
+    return song.timestamps
+        .where((timestamp) =>
+            ids.contains(timestamp.id) && !played.contains(timestamp.id))
+        .length;
+  }
+
+  bool _hasShuffleEnabledTimestamps(_SongEntry song) {
+    return _remainingShuffleSectionCount(song) > 0;
   }
 
   _ShuffleSegmentSelection? _selectShuffleSegment(_SongEntry song) {
     final shuffleIds = _shuffleIdsForSong(song.id);
+    final playedShuffleIds = _playedShuffleIdsForSong(song.id);
     final sorted = List<Timestamp>.from(song.timestamps)
       ..sort((a, b) => a.seconds.compareTo(b.seconds));
+    final selectableIndices = <int>[];
     final enabledIndices = <int>[];
 
     for (var index = 0; index < sorted.length; index++) {
       if (shuffleIds.contains(sorted[index].id)) {
         enabledIndices.add(index);
+        if (!playedShuffleIds.contains(sorted[index].id)) {
+          selectableIndices.add(index);
+        }
       }
     }
 
-    if (enabledIndices.isEmpty) return null;
+    if (selectableIndices.isEmpty) return null;
 
-    final enabledSelectionIndex = math.Random().nextInt(enabledIndices.length);
-    final startIndex = enabledIndices[enabledSelectionIndex];
-    final nextEnabledIndex = enabledSelectionIndex < enabledIndices.length - 1
-        ? enabledIndices[enabledSelectionIndex + 1]
+    final startIndex =
+        selectableIndices[math.Random().nextInt(selectableIndices.length)];
+    final startEnabledIndex = enabledIndices.indexOf(startIndex);
+    final nextEnabledIndex = (startEnabledIndex >= 0 &&
+            startEnabledIndex < enabledIndices.length - 1)
+        ? enabledIndices[startEnabledIndex + 1]
         : sorted.length;
     final stopAt = nextEnabledIndex < sorted.length
         ? sorted[nextEnabledIndex].seconds
@@ -636,6 +676,7 @@ class _HomeScreenState extends State<HomeScreen> {
         selection.startTimestamp.seconds - _selectedLeadInSeconds.toDouble());
 
     setState(() {
+      _playedShuffleIdsForSong(song.id).add(selection.startTimestamp.id);
       _segmentStopping = false;
       _playbackStopAtSeconds = selection.stopAt;
       _segmentTimestampIds
@@ -678,6 +719,7 @@ class _HomeScreenState extends State<HomeScreen> {
       song.timestamps.removeWhere((m) => m.id == timestamp.id);
     });
     _shuffleIdsForSong(song.id).remove(timestamp.id);
+    _playedShuffleIdsForSong(song.id).remove(timestamp.id);
     await SongStorage.updateTimestamps(song.id, song.timestamps);
   }
 
@@ -766,6 +808,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     _shuffleTimestampIdsBySong.remove(song.id);
+    _playedShuffleTimestampIdsBySong.remove(song.id);
 
     await SongStorage.deleteSong(song.id);
   }
@@ -876,6 +919,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final hasAudio = song != null && _loadError == null;
     final hasShuffleEnabled =
         song != null && _hasShuffleEnabledTimestamps(song);
+    final shuffleSectionsTotal = song != null ? _shuffleSectionCount(song) : 0;
+    final shuffleSectionsRemaining =
+        song != null ? _remainingShuffleSectionCount(song) : 0;
 
     if (song == null) {
       return const Center(
@@ -932,7 +978,10 @@ class _HomeScreenState extends State<HomeScreen> {
             waveformSeed: song.name,
             onPlayPause: _onPlayPause,
             onShufflePlay: _playShuffleSegment,
+            onShuffleReset: () => _resetShuffleSegments(song),
             shufflePlayEnabled: hasShuffleEnabled,
+            shuffleSectionsTotal: shuffleSectionsTotal,
+            shuffleSectionsRemaining: shuffleSectionsRemaining,
             onSeek: _onSeek,
           )
         else
