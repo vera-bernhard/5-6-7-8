@@ -164,6 +164,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final stored = await SongStorage.loadAll();
     final entries = <_SongEntry>[];
     for (final s in stored) {
+      final timestampIds =
+          s.timestamps.map((timestamp) => timestamp.id).toSet();
+      final shuffleTimestampIds =
+          s.randomTimestampIds.intersection(timestampIds);
+      final playedShuffleTimestampIds =
+          s.playedRandomTimestampIds.intersection(shuffleTimestampIds);
+      _shuffleTimestampIdsBySong[s.id] = shuffleTimestampIds;
+      _playedShuffleTimestampIdsBySong[s.id] = playedShuffleTimestampIds;
+
       entries.add(_SongEntry(
         id: s.id,
         name: s.name,
@@ -177,6 +186,15 @@ class _HomeScreenState extends State<HomeScreen> {
         _songs.addAll(entries);
       });
     }
+  }
+
+  Future<void> _persistShuffleStateForSong(String songId) async {
+    await SongStorage.updateRandomPlaybackState(
+      songId,
+      randomTimestampIds: Set<String>.from(_shuffleIdsForSong(songId)),
+      playedRandomTimestampIds:
+          Set<String>.from(_playedShuffleIdsForSong(songId)),
+    );
   }
 
   Future<void> _pickAudio() async {
@@ -594,7 +612,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return math.min(extendedEnd, maxDurationSeconds);
   }
 
-  void _toggleShuffleTimestamp(_SongEntry song, Timestamp timestamp) {
+  Future<void> _toggleShuffleTimestamp(
+      _SongEntry song, Timestamp timestamp) async {
     final shuffleIds = _shuffleIdsForSong(song.id);
     final playedShuffleIds = _playedShuffleIdsForSong(song.id);
     setState(() {
@@ -606,13 +625,17 @@ class _HomeScreenState extends State<HomeScreen> {
         playedShuffleIds.remove(timestamp.id);
       }
     });
+
+    await _persistShuffleStateForSong(song.id);
   }
 
-  void _resetShuffleSegments(_SongEntry song) {
+  Future<void> _resetShuffleSegments(_SongEntry song) async {
     setState(() {
       _playedShuffleIdsForSong(song.id).clear();
       _segmentTimestampIds.clear();
     });
+
+    await _persistShuffleStateForSong(song.id);
   }
 
   int _shuffleSectionCount(_SongEntry song) {
@@ -694,6 +717,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ..clear()
         ..addAll(selection.timestampIds);
     });
+
+    await _persistShuffleStateForSong(song.id);
 
     await _player.seek(Duration(milliseconds: (startSeconds * 1000).round()));
     await _player.play();
@@ -993,7 +1018,7 @@ class _HomeScreenState extends State<HomeScreen> {
             waveformSeed: song.name,
             onPlayPause: _onPlayPause,
             onShufflePlay: _playShuffleSegment,
-            onShuffleReset: () => _resetShuffleSegments(song),
+            onShuffleReset: () async => _resetShuffleSegments(song),
             shufflePlayEnabled: hasShuffleEnabled,
             shuffleSectionsTotal: shuffleSectionsTotal,
             shuffleSectionsRemaining: shuffleSectionsRemaining,
@@ -1199,7 +1224,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               color: isShuffleEnabled
                                   ? Theme.of(context).colorScheme.primary
                                   : Theme.of(context).colorScheme.outline,
-                              onPressed: () =>
+                              onPressed: () async =>
                                   _toggleShuffleTimestamp(song, timestamp),
                             ),
                             IconButton(

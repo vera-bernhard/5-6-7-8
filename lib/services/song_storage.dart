@@ -17,6 +17,8 @@ class StoredSong {
   final String audioFileName;
   final Uint8List audioBytes;
   final List<Timestamp> timestamps;
+  final Set<String> randomTimestampIds;
+  final Set<String> playedRandomTimestampIds;
 
   StoredSong({
     required this.id,
@@ -24,7 +26,17 @@ class StoredSong {
     required this.audioFileName,
     required this.audioBytes,
     required this.timestamps,
-  });
+    Set<String>? randomTimestampIds,
+    Set<String>? playedRandomTimestampIds,
+  })  : randomTimestampIds = randomTimestampIds ?? <String>{},
+        playedRandomTimestampIds = playedRandomTimestampIds ?? <String>{};
+
+  static Set<String> _parseStringSet(dynamic raw) {
+    if (raw is List) {
+      return raw.map((item) => item.toString()).toSet();
+    }
+    return <String>{};
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -33,6 +45,8 @@ class StoredSong {
         'audioBytes': audioBytes,
         'timestamps':
             timestamps.map((timestamp) => timestamp.toJson()).toList(),
+        'randomTimestampIds': randomTimestampIds.toList(),
+        'playedRandomTimestampIds': playedRandomTimestampIds.toList(),
       };
 
   factory StoredSong.fromJson(Map<String, dynamic> json) {
@@ -44,6 +58,11 @@ class StoredSong {
                 (timestamp) => Timestamp.fromJson(_asStringKeyedMap(timestamp)))
             .toList()
         : <Timestamp>[];
+    final randomTimestampIds = _parseStringSet(
+      json['randomTimestampIds'] ?? json['shuffleTimestampIds'],
+    );
+    final playedRandomTimestampIds =
+        _parseStringSet(json['playedRandomTimestampIds']);
 
     return StoredSong(
       id: json['id'] as String,
@@ -51,6 +70,9 @@ class StoredSong {
       audioFileName: json['audioFileName'] as String,
       audioBytes: _parseAudioBytes(json['audioBytes']),
       timestamps: timestamps,
+      randomTimestampIds: randomTimestampIds,
+      playedRandomTimestampIds:
+          playedRandomTimestampIds.intersection(randomTimestampIds),
     );
   }
 
@@ -127,12 +149,45 @@ class SongStorage {
     final songs = await loadAll();
     final idx = songs.indexWhere((s) => s.id == songId);
     if (idx == -1) return;
+    final timestampIds = timestamps.map((timestamp) => timestamp.id).toSet();
+    final randomTimestampIds =
+        songs[idx].randomTimestampIds.intersection(timestampIds);
+    final playedRandomTimestampIds =
+        songs[idx].playedRandomTimestampIds.intersection(randomTimestampIds);
     songs[idx] = StoredSong(
       id: songs[idx].id,
       name: songs[idx].name,
       audioFileName: songs[idx].audioFileName,
       audioBytes: songs[idx].audioBytes,
       timestamps: timestamps,
+      randomTimestampIds: randomTimestampIds,
+      playedRandomTimestampIds: playedRandomTimestampIds,
+    );
+    await _saveIndex(songs);
+  }
+
+  static Future<void> updateRandomPlaybackState(
+    String songId, {
+    required Set<String> randomTimestampIds,
+    required Set<String> playedRandomTimestampIds,
+  }) async {
+    final songs = await loadAll();
+    final idx = songs.indexWhere((s) => s.id == songId);
+    if (idx == -1) return;
+    final timestampIds =
+        songs[idx].timestamps.map((timestamp) => timestamp.id).toSet();
+    final filteredRandomIds = randomTimestampIds.intersection(timestampIds);
+    final filteredPlayedIds =
+        playedRandomTimestampIds.intersection(filteredRandomIds);
+
+    songs[idx] = StoredSong(
+      id: songs[idx].id,
+      name: songs[idx].name,
+      audioFileName: songs[idx].audioFileName,
+      audioBytes: songs[idx].audioBytes,
+      timestamps: songs[idx].timestamps,
+      randomTimestampIds: filteredRandomIds,
+      playedRandomTimestampIds: filteredPlayedIds,
     );
     await _saveIndex(songs);
   }
@@ -147,6 +202,8 @@ class SongStorage {
       audioFileName: songs[idx].audioFileName,
       audioBytes: songs[idx].audioBytes,
       timestamps: songs[idx].timestamps,
+      randomTimestampIds: songs[idx].randomTimestampIds,
+      playedRandomTimestampIds: songs[idx].playedRandomTimestampIds,
     );
     await _saveIndex(songs);
   }
