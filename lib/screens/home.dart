@@ -79,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
     'wav',
   };
   static const List<int> _leadInSecondOptions = <int>[0, 1, 3, 5, 8, 15];
+  static const List<int> _leadOutSecondOptions = <int>[0, 1, 3, 5, 8, 15];
 
   final List<_SongEntry> _songs = <_SongEntry>[];
   String? _activeSongId;
@@ -90,6 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Duration _duration = Duration.zero;
   bool _isPlaying = false;
   int _selectedLeadInSeconds = 0;
+  int _selectedLeadOutSeconds = 3;
   bool _isPreparingUpload = false;
 
   bool _segmentStopping = false;
@@ -575,12 +577,21 @@ class _HomeScreenState extends State<HomeScreen> {
     if (range == null) return;
     final startSeconds =
         math.max(0.0, range.start - _selectedLeadInSeconds.toDouble());
+    final stopSeconds = _applyLeadOut(range.end);
     setState(() {
       _segmentStopping = false;
-      _playbackStopAtSeconds = range.end;
+      _playbackStopAtSeconds = stopSeconds;
     });
     await _player.seek(Duration(milliseconds: (startSeconds * 1000).round()));
     await _player.play();
+  }
+
+  double _applyLeadOut(double segmentEndSeconds) {
+    final extendedEnd = segmentEndSeconds + _selectedLeadOutSeconds.toDouble();
+    final maxDurationSeconds = _duration.inMilliseconds > 0
+        ? _duration.inMilliseconds / 1000.0
+        : double.infinity;
+    return math.min(extendedEnd, maxDurationSeconds);
   }
 
   void _toggleShuffleTimestamp(_SongEntry song, Timestamp timestamp) {
@@ -678,7 +689,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _playedShuffleIdsForSong(song.id).add(selection.startTimestamp.id);
       _segmentStopping = false;
-      _playbackStopAtSeconds = selection.stopAt;
+      _playbackStopAtSeconds = _applyLeadOut(selection.stopAt);
       _segmentTimestampIds
         ..clear()
         ..addAll(selection.timestampIds);
@@ -922,6 +933,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final shuffleSectionsTotal = song != null ? _shuffleSectionCount(song) : 0;
     final shuffleSectionsRemaining =
         song != null ? _remainingShuffleSectionCount(song) : 0;
+    final leadInValue = _leadInSecondOptions.contains(_selectedLeadInSeconds)
+        ? _selectedLeadInSeconds
+        : _leadInSecondOptions.first;
+    final leadOutValue = _leadOutSecondOptions.contains(_selectedLeadOutSeconds)
+        ? _selectedLeadOutSeconds
+        : 3;
 
     if (song == null) {
       return const Center(
@@ -996,22 +1013,59 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
           child: Row(
             children: [
-              const Text('Lead-in'),
-              const SizedBox(width: 12),
-              DropdownButton<int>(
-                value: _selectedLeadInSeconds,
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => _selectedLeadInSeconds = value);
-                },
-                items: _leadInSecondOptions
-                    .map(
-                      (s) => DropdownMenuItem<int>(
-                        value: s,
-                        child: Text('$s s'),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Lead-in'),
+                      const SizedBox(width: 8),
+                      DropdownButton<int>(
+                        value: leadInValue,
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() => _selectedLeadInSeconds = value);
+                        },
+                        items: _leadInSecondOptions
+                            .map(
+                              (s) => DropdownMenuItem<int>(
+                                value: s,
+                                child: Text('$s s'),
+                              ),
+                            )
+                            .toList(),
                       ),
-                    )
-                    .toList(),
+                    ],
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Lead-out'),
+                      const SizedBox(width: 8),
+                      DropdownButton<int>(
+                        value: leadOutValue,
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() => _selectedLeadOutSeconds = value);
+                        },
+                        items: _leadOutSecondOptions
+                            .map(
+                              (s) => DropdownMenuItem<int>(
+                                value: s,
+                                child: Text('$s s'),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
