@@ -117,43 +117,39 @@ class _ShuffleRadialButton extends StatelessWidget {
     final canTap = enabled && shufflePlayEnabled;
     final canLongPress = enabled && totalSections > 0;
 
-    return Tooltip(
-      message:
-          'Random: $remainingSections/$totalSections left\nLong press to reset',
-      child: Material(
-        color: Colors.transparent,
-        child: InkResponse(
-          onTap: canTap ? onTap : null,
-          onLongPress: canLongPress ? onLongPress : null,
-          radius: 30,
-          customBorder: const CircleBorder(),
-          child: SizedBox(
-            width: 56,
-            height: 56,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                CustomPaint(
-                  size: const Size.square(56),
-                  painter: _ShuffleRadialPainter(
-                    totalSections: totalSections,
-                    remainingSections: remainingSections,
-                    filledColor: Theme.of(context).colorScheme.primary,
-                    emptyColor:
-                        Theme.of(context).colorScheme.surfaceContainerHighest,
-                    fallbackTrackColor:
-                        Theme.of(context).colorScheme.outlineVariant,
-                  ),
+    return Material(
+      color: Colors.transparent,
+      child: InkResponse(
+        onTap: canTap ? onTap : null,
+        onLongPress: canLongPress ? onLongPress : null,
+        radius: 30,
+        customBorder: const CircleBorder(),
+        child: SizedBox(
+          width: 56,
+          height: 56,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              CustomPaint(
+                size: const Size.square(56),
+                painter: _ShuffleRadialPainter(
+                  totalSections: totalSections,
+                  remainingSections: remainingSections,
+                  filledColor: Theme.of(context).colorScheme.primary,
+                  emptyColor:
+                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                  fallbackTrackColor:
+                      Theme.of(context).colorScheme.outlineVariant,
                 ),
-                Icon(
-                  Icons.shuffle,
-                  size: 22,
-                  color: canTap
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.outline,
-                ),
-              ],
-            ),
+              ),
+              Icon(
+                Icons.shuffle,
+                size: 22,
+                color: canTap
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.outline,
+              ),
+            ],
           ),
         ),
       ),

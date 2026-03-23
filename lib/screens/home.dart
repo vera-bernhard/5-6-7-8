@@ -883,12 +883,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
-                            tooltip: 'Rename',
                             icon: const Icon(Icons.edit_outlined),
                             onPressed: () => _renameSong(song),
                           ),
                           IconButton(
-                            tooltip: 'Delete',
                             icon: const Icon(Icons.delete_outline),
                             onPressed: () => _deleteSongFromLibrary(song),
                           ),
@@ -1197,7 +1195,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
-                              tooltip: 'Shuffle timestamp',
                               icon: const Icon(Icons.shuffle),
                               color: isShuffleEnabled
                                   ? Theme.of(context).colorScheme.primary
@@ -1206,7 +1203,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                   _toggleShuffleTimestamp(song, timestamp),
                             ),
                             IconButton(
-                              tooltip: 'Delete timestamp',
                               icon: const Icon(Icons.delete_outline),
                               onPressed: () =>
                                   _deleteTimestamp(song, timestamp),
