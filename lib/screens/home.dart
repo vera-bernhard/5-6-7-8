@@ -822,7 +822,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
               final nextSpeed = clampToSliderRange
                   ? _snapSpeed(
-                      speed.clamp(_minPlaybackSpeed, _maxPlaybackSpeed)
+                      speed
+                          .clamp(_minPlaybackSpeed, _maxPlaybackSpeed)
                           .toDouble(),
                     )
                   : ((speed >= _minPlaybackSpeed && speed <= _maxPlaybackSpeed)
@@ -853,8 +854,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: LayoutBuilder(
                         builder: (context, constraints) {
                           const sliderHorizontalInset = 24.0;
-                          final usableWidth =
-                              constraints.maxWidth - (sliderHorizontalInset * 2);
+                          final usableWidth = constraints.maxWidth -
+                              (sliderHorizontalInset * 2);
                           double tickLeftFor(double point) {
                             return sliderHorizontalInset +
                                 (_speedToSliderValue(point) * usableWidth);
@@ -890,8 +891,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                   height: 12,
                                   child: Stack(
                                     children: _speedSnapPoints.map((point) {
-                                      final left =
-                                          _speedToSliderValue(point) * usableWidth;
+                                      final left = _speedToSliderValue(point) *
+                                          usableWidth;
                                       return Positioned(
                                         left: left - 1.5,
                                         child: Container(
