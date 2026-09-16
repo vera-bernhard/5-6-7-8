@@ -80,6 +80,10 @@ class _HomeScreenState extends State<HomeScreen> {
   };
   static const List<int> _leadInSecondOptions = <int>[0, 1, 3, 5, 8, 15];
   static const List<int> _leadOutSecondOptions = <int>[0, 1, 3, 5, 8, 15];
+  static const double _minPlaybackSpeed = 0.8;
+  static const double _maxPlaybackSpeed = 1.2;
+  static const List<double> _speedSnapPoints = <double>[0.95, 1.0, 1.05];
+  static const double _speedSnapThreshold = 0.015;
 
   final List<_SongEntry> _songs = <_SongEntry>[];
   String? _activeSongId;
@@ -92,10 +96,12 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isPlaying = false;
   int _selectedLeadInSeconds = 0;
   int _selectedLeadOutSeconds = 3;
+  double _selectedPlaybackSpeed = 1.0;
   bool _isPreparingUpload = false;
 
   bool _segmentStopping = false;
   double? _playbackStopAtSeconds;
+  int _segmentStopToken = 0;
 
   final Set<String> _segmentTimestampIds = {};
   final Map<String, Set<String>> _shuffleTimestampIdsBySong = {};
@@ -124,6 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _player = AudioPlayer();
+    unawaited(_player.setSpeed(_selectedPlaybackSpeed));
     _loadSavedSongs();
     _player.positionStream.listen((position) {
       if (!mounted) return;
@@ -132,14 +139,15 @@ class _HomeScreenState extends State<HomeScreen> {
       if (stopAt != null && _isPlaying && !_segmentStopping) {
         final currentSec = position.inMilliseconds / 1000.0;
         if (currentSec >= stopAt) {
+          final stopToken = ++_segmentStopToken;
           _segmentStopping = true;
           _player.pause().then((_) {
             if (!mounted) return;
+            if (stopToken != _segmentStopToken) return;
             _player.seek(Duration(milliseconds: (stopAt * 1000).round()));
-            setState(() {
-              _playbackStopAtSeconds = null;
-              _segmentStopping = false;
-            });
+            if (!mounted) return;
+            if (stopToken != _segmentStopToken) return;
+            _clearSegmentStopState();
           });
         }
       }
@@ -150,8 +158,23 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     _player.playerStateStream.listen((state) {
       if (!mounted) return;
-      setState(() => _isPlaying = state.playing);
+      final completed = state.processingState == ProcessingState.completed;
+      setState(() {
+        _isPlaying = state.playing;
+
+        // Auto-complete or manual pause/stop should clear stale segment
+        // stop markers so the next play press is not instantly paused.
+        if (completed || !state.playing) {
+          _clearSegmentStopState();
+        }
+      });
     });
+  }
+
+  void _clearSegmentStopState() {
+    _segmentStopToken++;
+    _segmentStopping = false;
+    _playbackStopAtSeconds = null;
   }
 
   @override
@@ -441,12 +464,65 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isPlaying) {
       await _player.pause();
     } else {
+      _clearSegmentStopState();
+      if (_player.processingState == ProcessingState.completed) {
+        await _player.seek(Duration.zero);
+      }
       await _player.play();
     }
   }
 
   Future<void> _onSeek(Duration target) async {
+    _clearSegmentStopState();
     await _player.seek(target);
+  }
+
+  void _onPlaybackSpeedChanged(double speed) {
+    if (speed <= 0) return;
+    setState(() => _selectedPlaybackSpeed = speed);
+    unawaited(_player.setSpeed(speed));
+  }
+
+  double _speedToSliderValue(double speed) {
+    final minLog = math.log(_minPlaybackSpeed);
+    final maxLog = math.log(_maxPlaybackSpeed);
+    final speedLog =
+        math.log(speed.clamp(_minPlaybackSpeed, _maxPlaybackSpeed));
+    return ((speedLog - minLog) / (maxLog - minLog)).clamp(0.0, 1.0);
+  }
+
+  double _sliderValueToSpeed(double value) {
+    final minLog = math.log(_minPlaybackSpeed);
+    final maxLog = math.log(_maxPlaybackSpeed);
+    final mapped =
+        math.exp(minLog + (value.clamp(0.0, 1.0) * (maxLog - minLog)));
+    return double.parse(mapped.toStringAsFixed(3));
+  }
+
+  String _formatSpeed(double speed) {
+    return '${speed.toStringAsFixed(2)}x';
+  }
+
+  double _snapSpeed(double speed) {
+    var closest = speed;
+    var bestDistance = double.infinity;
+    for (final snapPoint in _speedSnapPoints) {
+      final distance = (speed - snapPoint).abs();
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        closest = snapPoint;
+      }
+    }
+    if (bestDistance <= _speedSnapThreshold) {
+      return closest;
+    }
+    return speed;
+  }
+
+  double? _parseSpeedInput(String raw) {
+    final normalized = raw.trim().toLowerCase().replaceAll('x', '');
+    if (normalized.isEmpty) return null;
+    return double.tryParse(normalized);
   }
 
   Future<void> _addTimestampAtCurrentTime() async {
@@ -549,8 +625,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _playFromTimestamp(Timestamp timestamp,
       {int leadInSeconds = 0}) async {
     setState(() {
-      _segmentStopping = false;
-      _playbackStopAtSeconds = null;
+      _clearSegmentStopState();
       _segmentTimestampIds.clear();
     });
     final startSeconds =
@@ -597,6 +672,7 @@ class _HomeScreenState extends State<HomeScreen> {
         math.max(0.0, range.start - _selectedLeadInSeconds.toDouble());
     final stopSeconds = _applyLeadOut(range.end);
     setState(() {
+      _segmentStopToken++;
       _segmentStopping = false;
       _playbackStopAtSeconds = stopSeconds;
     });
@@ -699,9 +775,254 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _showShuffleMessage(String message) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+        return AlertDialog(
+          title: const Text('Shuffle'),
+          content: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: Text(message)),
+              const SizedBox(width: 10),
+              Icon(Icons.shuffle, color: colorScheme.primary),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showSpeedDialog() async {
+    var dialogSpeed = _selectedPlaybackSpeed;
+    var isEditingSpeed = false;
+    final speedController = TextEditingController(
+      text: dialogSpeed.toStringAsFixed(2),
+    );
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void applySpeed(
+              double speed, {
+              bool updateEditorText = true,
+              bool clampToSliderRange = false,
+            }) {
+              if (speed <= 0) return;
+
+              final nextSpeed = clampToSliderRange
+                  ? _snapSpeed(
+                      speed.clamp(_minPlaybackSpeed, _maxPlaybackSpeed)
+                          .toDouble(),
+                    )
+                  : ((speed >= _minPlaybackSpeed && speed <= _maxPlaybackSpeed)
+                      ? _snapSpeed(speed)
+                      : speed);
+
+              setDialogState(() {
+                dialogSpeed = nextSpeed;
+                if (updateEditorText) {
+                  speedController.text = nextSpeed.toStringAsFixed(2);
+                  speedController.selection = TextSelection.fromPosition(
+                    TextPosition(offset: speedController.text.length),
+                  );
+                }
+              });
+              _onPlaybackSpeedChanged(nextSpeed);
+            }
+
+            return AlertDialog(
+              title: const Text('Playback Speed'),
+              content: SizedBox(
+                width: 320,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      height: 64,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          const sliderHorizontalInset = 24.0;
+                          final usableWidth =
+                              constraints.maxWidth - (sliderHorizontalInset * 2);
+                          double tickLeftFor(double point) {
+                            return sliderHorizontalInset +
+                                (_speedToSliderValue(point) * usableWidth);
+                          }
+
+                          final slowTickLeft =
+                              tickLeftFor(_speedSnapPoints.first);
+                          final fastTickLeft =
+                              tickLeftFor(_speedSnapPoints.last);
+                          return Stack(
+                            children: [
+                              Positioned(
+                                top: 0,
+                                left: slowTickLeft - 8,
+                                child: const Text(
+                                  '🐢',
+                                  style: TextStyle(fontSize: 14),
+                                ),
+                              ),
+                              Positioned(
+                                top: 0,
+                                left: fastTickLeft - 8,
+                                child: const Text(
+                                  '🐇',
+                                  style: TextStyle(fontSize: 14),
+                                ),
+                              ),
+                              Positioned(
+                                top: 20,
+                                left: sliderHorizontalInset,
+                                right: sliderHorizontalInset,
+                                child: SizedBox(
+                                  height: 12,
+                                  child: Stack(
+                                    children: _speedSnapPoints.map((point) {
+                                      final left =
+                                          _speedToSliderValue(point) * usableWidth;
+                                      return Positioned(
+                                        left: left - 1.5,
+                                        child: Container(
+                                          width: 3,
+                                          height: 12,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .outline,
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                top: 16,
+                                child: Slider(
+                                  value: _speedToSliderValue(dialogSpeed),
+                                  onChanged: (value) {
+                                    final speed = _sliderValueToSpeed(value);
+                                    applySpeed(
+                                      speed,
+                                      clampToSliderRange: true,
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (!isEditingSpeed)
+                      InkWell(
+                        onTap: () {
+                          setDialogState(() {
+                            isEditingSpeed = true;
+                            speedController.text =
+                                dialogSpeed.toStringAsFixed(2);
+                            speedController.selection =
+                                TextSelection.fromPosition(
+                              TextPosition(offset: speedController.text.length),
+                            );
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
+                          child: Text(
+                            _formatSpeed(dialogSpeed),
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                        ),
+                      )
+                    else
+                      SizedBox(
+                        width: 110,
+                        child: TextField(
+                          controller: speedController,
+                          autofocus: true,
+                          textAlign: TextAlign.center,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            labelText: 'Speed',
+                          ),
+                          onChanged: (value) {
+                            final parsed = _parseSpeedInput(value);
+                            if (parsed != null) {
+                              applySpeed(parsed, updateEditorText: false);
+                            }
+                          },
+                          onSubmitted: (value) {
+                            final parsed = _parseSpeedInput(value);
+                            if (parsed != null) {
+                              applySpeed(parsed);
+                            }
+                            setDialogState(() => isEditingSpeed = false);
+                          },
+                          onTapOutside: (_) {
+                            final parsed =
+                                _parseSpeedInput(speedController.text);
+                            if (parsed != null) {
+                              applySpeed(parsed);
+                            }
+                            setDialogState(() => isEditingSpeed = false);
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Done'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    speedController.dispose();
+  }
+
   Future<void> _playShuffleSegment() async {
     final song = _activeSong;
     if (song == null) return;
+
+    if (_shuffleSectionCount(song) == 0) {
+      await _showShuffleMessage(
+        'Please select segments for shuffling first.',
+      );
+      return;
+    }
+
+    if (_remainingShuffleSectionCount(song) == 0) {
+      await _showShuffleMessage(
+        'All selected shuffle segments were already played. Long-press shuffle to reset.',
+      );
+      return;
+    }
 
     final selection = _selectShuffleSegment(song);
     if (selection == null) return;
@@ -711,6 +1032,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _playedShuffleIdsForSong(song.id).add(selection.startTimestamp.id);
+      _segmentStopToken++;
       _segmentStopping = false;
       _playbackStopAtSeconds = _applyLeadOut(selection.stopAt);
       _segmentTimestampIds
@@ -962,7 +1284,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final leadOutValue = _leadOutSecondOptions.contains(_selectedLeadOutSeconds)
         ? _selectedLeadOutSeconds
         : 3;
-
     if (song == null) {
       return const Center(
         child: Text('No song selected. Open Library and choose a song.'),
@@ -973,7 +1294,7 @@ class _HomeScreenState extends State<HomeScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -995,20 +1316,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: hasAudio ? _addTimestampAtCurrentTime : null,
-              icon: const Icon(Icons.bookmark_add),
-              label: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('Save Timestamp'),
-              ),
-            ),
-          ),
-        ),
         if (hasAudio)
           WaveformPlayer(
             position: _position,
@@ -1017,8 +1324,11 @@ class _HomeScreenState extends State<HomeScreen> {
             enabled: true,
             waveformSeed: song.name,
             onPlayPause: _onPlayPause,
+            onSaveTimestamp: _addTimestampAtCurrentTime,
             onShufflePlay: _playShuffleSegment,
             onShuffleReset: () async => _resetShuffleSegments(song),
+            onToggleSpeed: () => unawaited(_showSpeedDialog()),
+            speedLabel: _formatSpeed(_selectedPlaybackSpeed),
             shufflePlayEnabled: hasShuffleEnabled,
             shuffleSectionsTotal: shuffleSectionsTotal,
             shuffleSectionsRemaining: shuffleSectionsRemaining,
@@ -1034,61 +1344,54 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-          child: Row(
+          child: Wrap(
+            spacing: 16,
+            runSpacing: 6,
+            alignment: WrapAlignment.center,
             children: [
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Lead-in'),
-                      const SizedBox(width: 8),
-                      DropdownButton<int>(
-                        value: leadInValue,
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setState(() => _selectedLeadInSeconds = value);
-                        },
-                        items: _leadInSecondOptions
-                            .map(
-                              (s) => DropdownMenuItem<int>(
-                                value: s,
-                                child: Text('$s s'),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ],
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Lead-in'),
+                  const SizedBox(width: 8),
+                  DropdownButton<int>(
+                    value: leadInValue,
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _selectedLeadInSeconds = value);
+                    },
+                    items: _leadInSecondOptions
+                        .map(
+                          (s) => DropdownMenuItem<int>(
+                            value: s,
+                            child: Text('$s s'),
+                          ),
+                        )
+                        .toList(),
                   ),
-                ),
+                ],
               ),
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Lead-out'),
-                      const SizedBox(width: 8),
-                      DropdownButton<int>(
-                        value: leadOutValue,
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setState(() => _selectedLeadOutSeconds = value);
-                        },
-                        items: _leadOutSecondOptions
-                            .map(
-                              (s) => DropdownMenuItem<int>(
-                                value: s,
-                                child: Text('$s s'),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ],
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Lead-out'),
+                  const SizedBox(width: 8),
+                  DropdownButton<int>(
+                    value: leadOutValue,
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _selectedLeadOutSeconds = value);
+                    },
+                    items: _leadOutSecondOptions
+                        .map(
+                          (s) => DropdownMenuItem<int>(
+                            value: s,
+                            child: Text('$s s'),
+                          ),
+                        )
+                        .toList(),
                   ),
-                ),
+                ],
               ),
             ],
           ),
@@ -1260,13 +1563,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('5-6-7-8 Beta'),
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-            child: SegmentedButton<_HomeTab>(
+        title: Row(
+          children: [
+            const Expanded(
+              child: Text(
+                '5-6-7-8 Beta',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            SegmentedButton<_HomeTab>(
               segments: const [
                 ButtonSegment<_HomeTab>(
                   value: _HomeTab.library,
@@ -1287,17 +1593,19 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               showSelectedIcon: false,
               style: ButtonStyle(
-                minimumSize: WidgetStateProperty.all(const Size.fromHeight(48)),
+                visualDensity: VisualDensity.compact,
+                minimumSize: WidgetStateProperty.all(
+                  const Size(0, 36),
+                ),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
             ),
-          ),
-          Expanded(
-            child: _activeTab == _HomeTab.library
-                ? _buildLibraryView()
-                : _buildPlayerView(),
-          ),
-        ],
+          ],
+        ),
       ),
+      body: _activeTab == _HomeTab.library
+          ? _buildLibraryView()
+          : _buildPlayerView(),
     );
   }
 }

@@ -7,8 +7,11 @@ class WaveformPlayer extends StatelessWidget {
   final bool isPlaying;
   final bool enabled;
   final VoidCallback onPlayPause;
+  final VoidCallback? onSaveTimestamp;
   final VoidCallback onShufflePlay;
   final VoidCallback onShuffleReset;
+  final VoidCallback onToggleSpeed;
+  final String speedLabel;
   final bool shufflePlayEnabled;
   final int shuffleSectionsTotal;
   final int shuffleSectionsRemaining;
@@ -22,8 +25,11 @@ class WaveformPlayer extends StatelessWidget {
     required this.isPlaying,
     required this.enabled,
     required this.onPlayPause,
+    this.onSaveTimestamp,
     required this.onShufflePlay,
     required this.onShuffleReset,
+    required this.onToggleSpeed,
+    required this.speedLabel,
     required this.shufflePlayEnabled,
     required this.shuffleSectionsTotal,
     required this.shuffleSectionsRemaining,
@@ -35,6 +41,7 @@ class WaveformPlayer extends StatelessWidget {
   Widget build(BuildContext context) {
     final maxMs = duration.inMilliseconds <= 0 ? 1 : duration.inMilliseconds;
     final progress = (position.inMilliseconds / maxMs).clamp(0.0, 1.0);
+    final canSaveTimestamp = enabled && onSaveTimestamp != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -63,19 +70,41 @@ class WaveformPlayer extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            FilledButton.icon(
-              onPressed: enabled ? onPlayPause : null,
-              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-              label: Text(isPlaying ? 'Pause' : 'Play'),
+            IconButton.filledTonal(
+              onPressed: canSaveTimestamp ? onSaveTimestamp : null,
+              tooltip: 'Save Timestamp',
+              icon: const Icon(Icons.bookmark_add),
             ),
             const SizedBox(width: 10),
-            _ShuffleRadialButton(
+            IconButton.filledTonal(
+              onPressed: enabled ? onPlayPause : null,
+              tooltip: isPlaying ? 'Pause' : 'Play',
+              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+            ),
+            const SizedBox(width: 10),
+            _ShuffleRingButton(
               enabled: enabled,
               shufflePlayEnabled: shufflePlayEnabled,
               totalSections: shuffleSectionsTotal,
               remainingSections: shuffleSectionsRemaining,
               onTap: onShufflePlay,
               onLongPress: onShuffleReset,
+            ),
+            const SizedBox(width: 10),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton.filledTonal(
+                  onPressed: enabled ? onToggleSpeed : null,
+                  tooltip: 'Speed $speedLabel',
+                  icon: const Icon(Icons.speed),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  speedLabel,
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ],
             ),
           ],
         ),
@@ -95,7 +124,7 @@ class WaveformPlayer extends StatelessWidget {
   }
 }
 
-class _ShuffleRadialButton extends StatelessWidget {
+class _ShuffleRingButton extends StatelessWidget {
   final bool enabled;
   final bool shufflePlayEnabled;
   final int totalSections;
@@ -103,7 +132,7 @@ class _ShuffleRadialButton extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
-  const _ShuffleRadialButton({
+  const _ShuffleRingButton({
     required this.enabled,
     required this.shufflePlayEnabled,
     required this.totalSections,
@@ -116,40 +145,43 @@ class _ShuffleRadialButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final canTap = enabled && shufflePlayEnabled;
     final canLongPress = enabled && totalSections > 0;
+    final colorScheme = Theme.of(context).colorScheme;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkResponse(
-        onTap: canTap ? onTap : null,
-        onLongPress: canLongPress ? onLongPress : null,
-        radius: 30,
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: 56,
-          height: 56,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              CustomPaint(
-                size: const Size.square(56),
-                painter: _ShuffleRadialPainter(
-                  totalSections: totalSections,
-                  remainingSections: remainingSections,
-                  filledColor: Theme.of(context).colorScheme.primary,
-                  emptyColor:
-                      Theme.of(context).colorScheme.surfaceContainerHighest,
-                  fallbackTrackColor:
-                      Theme.of(context).colorScheme.outlineVariant,
+    return Tooltip(
+      message: 'Shuffle ($remainingSections/$totalSections left)',
+      child: Material(
+        color: colorScheme.secondaryContainer,
+        shape: const CircleBorder(),
+        child: InkResponse(
+          onTap: enabled ? onTap : null,
+          onLongPress: canLongPress ? onLongPress : null,
+          radius: 20,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CustomPaint(
+                  size: const Size.square(40),
+                  painter: _ShuffleRadialPainter(
+                    totalSections: totalSections,
+                    remainingSections: remainingSections,
+                    filledColor: colorScheme.primary,
+                    emptyColor: colorScheme.surfaceContainerHighest,
+                    fallbackTrackColor: colorScheme.outlineVariant,
+                  ),
                 ),
-              ),
-              Icon(
-                Icons.shuffle,
-                size: 22,
-                color: canTap
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.outline,
-              ),
-            ],
+                Icon(
+                  Icons.shuffle,
+                  size: 20,
+                  color: enabled
+                      ? (canTap ? colorScheme.primary : colorScheme.outline)
+                      : colorScheme.onSurface.withValues(alpha: 0.38),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -175,12 +207,12 @@ class _ShuffleRadialPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
-    final radius = (math.min(size.width, size.height) / 2) - 4;
+    final radius = (math.min(size.width, size.height) / 2) - 3;
     final rect = Rect.fromCircle(center: center, radius: radius);
 
     final basePaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 5
+      ..strokeWidth = 3
       ..strokeCap = StrokeCap.round
       ..color = fallbackTrackColor;
 
@@ -191,14 +223,14 @@ class _ShuffleRadialPainter extends CustomPainter {
 
     final clampedRemaining = remainingSections.clamp(0, totalSections);
     final perSection = (math.pi * 2) / totalSections;
-    final gap = math.min(0.22, perSection * 0.35);
+    final gap = math.min(0.24, perSection * 0.35);
     final sweep = math.max(0.02, perSection - gap);
 
     for (var i = 0; i < totalSections; i++) {
       final start = (-math.pi / 2) + (i * perSection) + (gap / 2);
       final paint = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 5
+        ..strokeWidth = 3
         ..strokeCap = StrokeCap.round
         ..color = i < clampedRemaining ? filledColor : emptyColor;
       canvas.drawArc(rect, start, sweep, false, paint);
