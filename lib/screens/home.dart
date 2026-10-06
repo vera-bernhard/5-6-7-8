@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:just_audio/just_audio.dart';
+import '../widgets/bpm_details.dart';
 import '../widgets/waveform_player.dart';
 import '../models/song_analysis.dart';
 import '../models/timestamp.dart';
@@ -1475,6 +1476,9 @@ class _HomeScreenState extends State<HomeScreen> {
             shuffleSectionsTotal: shuffleSectionsTotal,
             shuffleSectionsRemaining: shuffleSectionsRemaining,
             onSeek: _onSeek,
+            onShowBpmDetails: song.analysis == null
+                ? null
+                : () => unawaited(showBpmDetails(context, song.analysis!)),
           )
         else
           Padding(

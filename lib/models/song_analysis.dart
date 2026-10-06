@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 /// Bump when the analysis algorithm changes, so stored results get recomputed.
-const int kAnalysisVersion = 2;
+const int kAnalysisVersion = 3;
 
 class BpmSection {
   final double start;

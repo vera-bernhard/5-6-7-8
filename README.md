@@ -23,8 +23,11 @@ as often as you need, with a count-in before and some extra time after.
 - The waveform shows the real loudness of the music, so you can see where one
   song of a mix ends and the next one starts (web app)
 - A BPM band above the waveform shows each song of a mix with its tempo, for
-  example `128 BPM | 143 BPM | 125 BPM`. The song that is currently playing is
-  highlighted (web app)
+  example `128 | 143 BPM | 125`. The song that is currently playing is
+  highlighted and its field also shows the unit, growing over its neighbours
+  if needed. The tempo of a short song may reach into its neighbours too, so
+  it stays readable. Tap the band to see a chart of the BPM over the song and
+  the exact times and BPM of each section (web app)
 - Change the playback speed between 0.8x and 1.2x to practise slower or faster
 
 ### Timestamps and segments
@@ -157,12 +160,14 @@ the transitions between songs of a mix visible.
 
 **3. Onset envelope: "where are the beats?"** The audio is cut into short
 steps of about 11.6 ms (about 86 per second). For each step the app measures
-the energy of the whole signal and of the bass below about 200 Hz, where the
-kick drum is. A beat shows up as a sudden *increase* in energy, so the envelope
-is the positive change in loudness (in dB) from one step to the next, with the
-slow loudness trend removed. The result is a curve with a spike at every drum
-hit or note onset. It is stored too, so tempos can be recomputed later without
-decoding the audio again.
+the energy in four frequency bands: below 200 Hz (kick), 200–800 Hz (bass,
+vocals), 800–3,000 Hz (snare, claps) and above 3,000 Hz (hi-hats). A beat
+shows up as a sudden *increase* in energy, so the envelope is the sum of the
+positive changes in loudness (in dB) of each band from one step to the next,
+with the slow loudness trend removed. Separate bands make every instrument's
+rhythm count, not only the loudest one. The result is a curve with a spike at
+every drum hit or note onset. It is stored too, so tempos can be recomputed
+later without decoding the audio again.
 
 **4. Tempo from autocorrelation.** Music repeats: if the beat is every 0.47 s,
 the onset curve looks similar to itself shifted by 0.47 s. The app compares the
@@ -189,15 +194,22 @@ enough for this: it can jump within a song (for example between 70, 94 and
 - For every point in time it compares the average fingerprint of the 8 seconds
   before with the 8 seconds after. Inside a song they are almost the same; at a
   song change they differ a lot.
-- Clear peaks of this difference become song changes. Silent gaps of at least
-  0.3 s also count.
+- Clear peaks of this difference become song changes. Around a change the
+  difference stays high for a few seconds, so the change is placed in the
+  middle of that plateau. Silent gaps of at least 0.3 s also count.
 - Changes in the first and last 15 seconds are ignored (usually an intro or
   outro), and every section must be at least 10 seconds long.
-- Finally each change is moved onto a nearby (±4 s) loudness dip or jump, if
-  there is a clear one, because that is usually exactly where the cut is.
+- Finally each change is moved onto a nearby (±2 s) point where the loudness
+  clearly rises, if there is one: the end of a short gap or dip, or the start
+  of a louder song. That is where you hear the next song start.
 
 **6. BPM per section.** The tempo of each section is computed from its whole
 length with step 4, which is more accurate than short windows.
+
+**7. BPM over the song (chart).** Only when the chart is opened, the tempo is
+computed with step 4 for every second, from the 8 seconds around it. Seconds
+without a clear beat are left out, and each value is the median of the seconds
+around it, so short outliers at song changes disappear.
 
 **Keeping the app responsive.** Flutter web has no background threads for
 Dart code, so the analysis runs on the UI thread in small chunks and lets the
@@ -206,9 +218,10 @@ a file cannot be decoded, that is saved too, so it is not retried on every
 start.
 
 **Limits.** The analysis was tuned on synthetic test tracks and one real
-aerobics mix. A song change can be placed a few seconds early (the next song
-often fades in before the cut), and a long intro without drums can be detected
-as an extra section. When the algorithm changes, `kAnalysisVersion` in
+aerobics mix, where it places the song changes within about a second. A short
+transition of a few seconds between two songs (for example a riser) is not a
+section of its own, and a long intro without drums can be detected as an extra
+section. When the algorithm changes, `kAnalysisVersion` in
 `lib/models/song_analysis.dart` is increased, and all songs are re-analyzed
 once in the background.
 

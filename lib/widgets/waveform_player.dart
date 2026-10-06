@@ -32,6 +32,9 @@ class WaveformPlayer extends StatelessWidget {
   final Duration silenceTotal;
   final bool silenceIsLeadOut;
 
+  /// Called when the BPM band is tapped, or null if it can't be tapped.
+  final VoidCallback? onShowBpmDetails;
+
   const WaveformPlayer({
     super.key,
     this.title,
@@ -56,6 +59,7 @@ class WaveformPlayer extends StatelessWidget {
     this.silenceRemaining,
     this.silenceTotal = Duration.zero,
     this.silenceIsLeadOut = false,
+    this.onShowBpmDetails,
   });
 
   @override
@@ -111,6 +115,7 @@ class WaveformPlayer extends StatelessWidget {
               sections: sections,
               durationSeconds: durationSeconds,
               currentSection: currentSection,
+              onTap: onShowBpmDetails,
             ),
           ),
         Padding(
@@ -573,15 +578,36 @@ class _BpmBand extends StatelessWidget {
   final List<BpmSection> sections;
   final double durationSeconds;
   final BpmSection? currentSection;
+  final VoidCallback? onTap;
+
+  static const double _labelPadding = 3;
+  static const double _labelGap = 2;
 
   const _BpmBand({
     required this.sections,
     required this.durationSeconds,
     required this.currentSection,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final band = _buildBand(context);
+    if (onTap == null) return band;
+    return Tooltip(
+      message: 'Show BPM over the song',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: band,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBand(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final labelStyle = Theme.of(context).textTheme.labelSmall;
     return SizedBox(
@@ -589,17 +615,26 @@ class _BpmBand extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
+          final current =
+              sections.indexWhere((s) => identical(s, currentSection));
+          final labels = _layoutLabels(context, width, labelStyle, current);
           return Stack(
             children: [
               for (var i = 0; i < sections.length; i++)
-                _buildBlock(
-                  context,
-                  sections[i],
-                  i,
-                  width,
-                  colors,
-                  labelStyle,
+                Positioned(
+                  left: _left(i, width),
+                  width: _blockWidth(i, width),
+                  top: 0,
+                  bottom: 0,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: _background(i, colors),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
                 ),
+              for (final label in labels)
+                if (label != null) _buildLabel(label, colors, labelStyle),
             ],
           );
         },
@@ -607,50 +642,145 @@ class _BpmBand extends StatelessWidget {
     );
   }
 
-  Widget _buildBlock(BuildContext context, BpmSection section, int index,
-      double width, ColorScheme colors, TextStyle? labelStyle) {
-    final left = (section.start / durationSeconds).clamp(0.0, 1.0) * width;
-    final right = (section.end / durationSeconds).clamp(0.0, 1.0) * width;
-    final blockWidth = math.max(0.0, right - left - 1);
-    final isCurrent = identical(section, currentSection);
-    final style = labelStyle?.copyWith(
-      color: isCurrent ? colors.onPrimaryContainer : colors.onSurfaceVariant,
-    );
-    // The unit is shown once, in the last block, if it fits there.
-    final isLast = index == sections.length - 1;
-    final candidates = section.bpm <= 0
-        ? const <String>[]
-        : [
-            if (isLast) '${section.bpm.round()} BPM',
-            '${section.bpm.round()}',
-          ];
-    // Hide the number in blocks too narrow for it, instead of clipping it.
-    String? label;
-    for (final candidate in candidates) {
-      if (_textWidth(context, candidate, style) + 6 <= blockWidth) {
-        label = candidate;
-        break;
+  double _left(int index, double width) =>
+      (sections[index].start / durationSeconds).clamp(0.0, 1.0) * width;
+
+  double _blockWidth(int index, double width) {
+    final right =
+        (sections[index].end / durationSeconds).clamp(0.0, 1.0) * width;
+    return math.max(0.0, right - _left(index, width) - 1);
+  }
+
+  Color _background(int index, ColorScheme colors) =>
+      identical(sections[index], currentSection)
+          ? colors.primaryContainer
+          : (index.isEven
+              ? colors.surfaceContainerHigh
+              : colors.surfaceContainerHighest);
+
+  String _number(int index) => '${sections[index].bpm.round()}';
+
+  /// Places the labels as close to the middle of their blocks as possible.
+  /// Only the playing section ([current]) shows the unit. Its label is placed
+  /// first, so it is always shown, and may grow over its neighbours: it goes
+  /// to the spot over its block that leaves room for the most other numbers.
+  /// The numbers follow, narrow blocks first, as they have the fewest
+  /// options. Numbers without room are left out (null).
+  List<_BandLabel?> _layoutLabels(
+      BuildContext context, double width, TextStyle? style, int current) {
+    double measure(String text) =>
+        _textWidth(context, text, style) + 2 * _labelPadding;
+    final numbered = [
+      for (var i = 0; i < sections.length; i++)
+        if (i != current && sections[i].bpm > 0) i,
+    ]..sort((a, b) => _blockWidth(a, width).compareTo(_blockWidth(b, width)));
+    final numberWidths = {for (final i in numbered) i: measure(_number(i))};
+
+    List<_BandLabel?> placeNumbers(_BandLabel? first) {
+      final labels = List<_BandLabel?>.filled(sections.length, null);
+      // Placed labels, sorted by position.
+      final placed = <_BandLabel>[];
+      void add(_BandLabel label) {
+        labels[label.index] = label;
+        placed
+          ..add(label)
+          ..sort((a, b) => a.left.compareTo(b.left));
+      }
+
+      if (first != null) add(first);
+      for (final i in numbered) {
+        final label = _fit(i, _number(i), numberWidths[i]!, width, placed);
+        if (label != null) add(label);
+      }
+      return labels;
+    }
+
+    if (current < 0 || sections[current].bpm <= 0) return placeNumbers(null);
+
+    final text = '${_number(current)} BPM';
+    final labelWidth = measure(text);
+    final blockLeft = _left(current, width);
+    final blockRight = blockLeft + _blockWidth(current, width);
+    final target = (blockLeft + blockRight - labelWidth) / 2;
+    // The middle of the label stays over its block, unless the label would
+    // then stick out of the band.
+    final double maxLeft = math.max(0.0, width - labelWidth);
+    final from = math.min(maxLeft, math.max(0.0, blockLeft - labelWidth / 2));
+    final to = math.max(from, math.min(maxLeft, blockRight - labelWidth / 2));
+    final candidates = [
+      target.clamp(from, to),
+      for (var left = from; left <= to; left++) left,
+    ]..sort((a, b) => (a - target).abs().compareTo((b - target).abs()));
+    List<_BandLabel?>? best;
+    var bestCount = -1;
+    for (final left in candidates) {
+      final labels = placeNumbers(_BandLabel(current, text, left, labelWidth));
+      final count = labels.where((label) => label != null).length;
+      if (count > bestCount) {
+        best = labels;
+        bestCount = count;
+      }
+      if (count == numbered.length + 1) break;
+    }
+    return best!;
+  }
+
+  /// A label for block [index], in the free room between the [placed]
+  /// labels (sorted by position), as close to the middle of the block as
+  /// possible. It may reach into the neighbouring blocks, so narrow blocks
+  /// still show their BPM, but its middle stays inside its own block. Null
+  /// if there is no room.
+  _BandLabel? _fit(int index, String text, double labelWidth, double width,
+      List<_BandLabel> placed) {
+    final blockLeft = _left(index, width);
+    final blockRight = blockLeft + _blockWidth(index, width);
+    final target = (blockLeft + blockRight - labelWidth) / 2;
+    final minLeft = math.max(0.0, blockLeft - labelWidth / 2);
+    final maxLeft = math.min(width - labelWidth, blockRight - labelWidth / 2);
+    double? best;
+    var gapStart = 0.0;
+    for (var p = 0; p <= placed.length; p++) {
+      final gapEnd = p < placed.length ? placed[p].left - _labelGap : width;
+      final from = math.max(minLeft, gapStart);
+      final to = math.min(maxLeft, gapEnd - labelWidth);
+      if (from <= to) {
+        final left = target.clamp(from, to);
+        if (best == null || (left - target).abs() < (best - target).abs()) {
+          best = left;
+        }
+      }
+      if (p < placed.length) {
+        gapStart = placed[p].left + placed[p].width + _labelGap;
       }
     }
-    final background = isCurrent
-        ? colors.primaryContainer
-        : (index.isEven
-            ? colors.surfaceContainerHigh
-            : colors.surfaceContainerHighest);
+    return best == null ? null : _BandLabel(index, text, best, labelWidth);
+  }
+
+  /// The label sits on a pill in its block's colour, so a label that
+  /// reaches into the neighbouring blocks still reads as part of its own.
+  Widget _buildLabel(
+      _BandLabel label, ColorScheme colors, TextStyle? labelStyle) {
+    final isCurrent = identical(sections[label.index], currentSection);
     return Positioned(
-      left: left,
-      width: blockWidth,
+      left: label.left,
+      width: label.width,
       top: 0,
       bottom: 0,
       child: Container(
         decoration: BoxDecoration(
-          color: background,
+          color: _background(label.index, colors),
           borderRadius: BorderRadius.circular(4),
         ),
         alignment: Alignment.center,
-        child: label == null
-            ? null
-            : Text(label, maxLines: 1, softWrap: false, style: style),
+        child: Text(
+          label.text,
+          maxLines: 1,
+          softWrap: false,
+          style: labelStyle?.copyWith(
+            color:
+                isCurrent ? colors.onPrimaryContainer : colors.onSurfaceVariant,
+          ),
+        ),
       ),
     );
   }
@@ -667,4 +797,13 @@ class _BpmBand extends StatelessWidget {
     painter.dispose();
     return width;
   }
+}
+
+class _BandLabel {
+  final int index;
+  final String text;
+  final double left;
+  final double width;
+
+  _BandLabel(this.index, this.text, this.left, this.width);
 }

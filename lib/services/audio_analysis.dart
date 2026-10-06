@@ -19,10 +19,19 @@ const double _tempogramStepSeconds = 0.5;
 const double _noveltySpanSeconds = 8;
 const double _noveltyThreshold = 0.4;
 const double _peakSuppressSeconds = 3;
-const double _refineSeconds = 2;
-const double _snapSeconds = 4;
+const double _plateauFraction = 0.95;
+const double _snapSeconds = 2;
+const double _riseBeforeSeconds = 0.5;
+const double _riseAfterSeconds = 2;
 const double _minSnapDb = 3;
 const double _minSnappedSeconds = 6;
+// Upper edges (Hz) of the frequency bands of the onset envelope; the last
+// band is everything above the last edge. Kick, bass/vocals, snare/claps and
+// hi-hats each mostly land in their own band.
+const List<double> _bandEdges = [200, 800, 3000];
+const double _curveWindowSeconds = 8;
+const double _curveMinConfidence = 0.1;
+const int _curveMedianSeconds = 2;
 
 /// Lets the UI render between chunks of work. Flutter web has no isolates, so
 /// the analysis runs on the UI thread in small pieces.
@@ -33,6 +42,13 @@ class BpmEstimate {
   final double confidence;
 
   BpmEstimate(this.bpm, this.confidence);
+}
+
+class TempoPoint {
+  final double seconds;
+  final double bpm;
+
+  TempoPoint(this.seconds, this.bpm);
 }
 
 /// Computes the waveform, onset envelope and BPM sections of mono [samples].
@@ -65,6 +81,41 @@ Future<SongAnalysis> analyzeAudio(Float32List samples, int sampleRate) async {
     onsetEnvelope: envelope,
     sections: sections,
   );
+}
+
+/// The tempo over the song, for a chart: one value per second, each from the
+/// 8 seconds around it. Seconds without a clear beat are left out. Each value
+/// is the median of the seconds around it, so short outliers, mostly at song
+/// changes, disappear while real tempo changes stay sharp.
+Future<List<TempoPoint>> tempoCurve(SongAnalysis analysis) async {
+  final clear = <TempoPoint>[];
+  for (var t = 0; t <= analysis.durationSeconds; t++) {
+    final estimate = estimateBpm(analysis.onsetEnvelope, analysis.envelopeFps,
+        t - _curveWindowSeconds / 2, t + _curveWindowSeconds / 2);
+    if (estimate != null && estimate.confidence >= _curveMinConfidence) {
+      clear.add(TempoPoint(t.toDouble(), estimate.bpm));
+    }
+    if (t % 20 == 19) await _yield();
+  }
+
+  final curve = <TempoPoint>[];
+  for (var i = 0; i < clear.length; i++) {
+    final around = [
+      for (var j = math.max(0, i - _curveMedianSeconds);
+          j <= math.min(clear.length - 1, i + _curveMedianSeconds);
+          j++)
+        if ((clear[j].seconds - clear[i].seconds).abs() <= _curveMedianSeconds)
+          clear[j].bpm,
+    ]..sort();
+    // A lone second between unclear ones is more likely noise than tempo.
+    if (around.length < 3) continue;
+    final middle = around.length ~/ 2;
+    final median = around.length.isOdd
+        ? around[middle]
+        : (around[middle - 1] + around[middle]) / 2;
+    curve.add(TempoPoint(clear[i].seconds, median));
+  }
+  return curve;
 }
 
 /// Estimates the tempo between [startSec] and [endSec] from an onset
@@ -177,35 +228,80 @@ Future<Uint8List> _computeWaveform(Float32List samples) async {
 class _HopEnergies {
   final int hop;
   final Float64List full;
-  final Float64List low;
 
-  _HopEnergies(this.hop, this.full, this.low);
+  /// One list per band of [_bandEdges], low to high.
+  final List<Float64List> bands;
+
+  _HopEnergies(this.hop, this.full, this.bands);
 }
 
-/// Mean energy per hop, of the full signal and of a ~200 Hz lowpass (kick).
+/// A second-order Butterworth low- or highpass (RBJ audio EQ cookbook).
+class _Biquad {
+  final double b0, b1, b2, a1, a2;
+  double _x1 = 0, _x2 = 0, _y1 = 0, _y2 = 0;
+
+  _Biquad._(this.b0, this.b1, this.b2, this.a1, this.a2);
+
+  factory _Biquad(double cutoff, int sampleRate, {required bool highpass}) {
+    final w = 2 * math.pi * math.min(cutoff, 0.45 * sampleRate) / sampleRate;
+    final cos = math.cos(w);
+    final alpha = math.sin(w) / math.sqrt2;
+    final a0 = 1 + alpha;
+    final b0 = (highpass ? 1 + cos : 1 - cos) / 2 / a0;
+    final b1 = (highpass ? -2 : 2) * b0;
+    return _Biquad._(b0, b1, b0, -2 * cos / a0, (1 - alpha) / a0);
+  }
+
+  double process(double x) {
+    final y = b0 * x + b1 * _x1 + b2 * _x2 - a1 * _y1 - a2 * _y2;
+    _x2 = _x1;
+    _x1 = x;
+    _y2 = _y1;
+    _y1 = y;
+    return y;
+  }
+}
+
+/// Mean energy per hop, of the full signal and of each band of [_bandEdges].
 Future<_HopEnergies> _computeHopEnergies(
     Float32List samples, int sampleRate) async {
   final hop = math.max(1, (sampleRate * _hopSeconds).round());
   final count = samples.length ~/ hop;
   final full = Float64List(count);
-  final low = Float64List(count);
-  final alpha = 1 - math.exp(-2 * math.pi * 200 / sampleRate);
-  var lp = 0.0;
+  final bands = [
+    for (var b = 0; b <= _bandEdges.length; b++) Float64List(count)
+  ];
+  final filters = [
+    for (var b = 0; b <= _bandEdges.length; b++)
+      [
+        if (b > 0) _Biquad(_bandEdges[b - 1], sampleRate, highpass: true),
+        if (b < _bandEdges.length)
+          _Biquad(_bandEdges[b], sampleRate, highpass: false),
+      ],
+  ];
+  final bandSums = Float64List(bands.length);
   for (var h = 0; h < count; h++) {
     var sumFull = 0.0;
-    var sumLow = 0.0;
+    bandSums.fillRange(0, bandSums.length, 0);
     final from = h * hop;
     for (var i = from; i < from + hop; i++) {
       final s = samples[i];
-      lp += alpha * (s - lp);
       sumFull += s * s;
-      sumLow += lp * lp;
+      for (var b = 0; b < filters.length; b++) {
+        var v = s;
+        for (final filter in filters[b]) {
+          v = filter.process(v);
+        }
+        bandSums[b] += v * v;
+      }
     }
     full[h] = sumFull / hop;
-    low[h] = sumLow / hop;
+    for (var b = 0; b < bands.length; b++) {
+      bands[b][h] = bandSums[b] / hop;
+    }
     if (h % 20000 == 19999) await _yield();
   }
-  return _HopEnergies(hop, full, low);
+  return _HopEnergies(hop, full, bands);
 }
 
 Float64List _toDb(Float64List energies) {
@@ -221,14 +317,16 @@ Float64List _toDb(Float64List energies) {
   return db;
 }
 
+/// Sum of the loudness increases of each band. Separate bands make the
+/// rhythm of each instrument count, instead of mostly the loudest one.
 Uint8List _onsetEnvelope(_HopEnergies energies, double fps) {
-  final fullDb = _toDb(energies.full);
-  final lowDb = _toDb(energies.low);
-  final count = fullDb.length;
+  final count = energies.full.length;
   final raw = Float64List(count);
-  for (var i = 1; i < count; i++) {
-    raw[i] = math.max(0.0, fullDb[i] - fullDb[i - 1]) +
-        math.max(0.0, lowDb[i] - lowDb[i - 1]);
+  for (final band in energies.bands) {
+    final db = _toDb(band);
+    for (var i = 1; i < count; i++) {
+      raw[i] += math.max(0.0, db[i] - db[i - 1]);
+    }
   }
 
   // Remove the slowly changing part (moving average over ~0.5 s).
@@ -274,12 +372,13 @@ Future<List<double>> _findBoundaries(_HopEnergies energies, Uint8List envelope,
     }
   }
 
-  // Rhythm changes are only accurate to a few seconds; move each one onto a
-  // nearby loudness change if that doesn't make a section too short.
+  // Rhythm changes are only accurate to about a second; move each one onto
+  // the nearby point where the next song starts, if that doesn't make a
+  // section too short.
   final loudness = _loudnessFrames(energies, fps);
   for (var i = 0; i < accepted.length; i++) {
     if (silences.contains(accepted[i])) continue;
-    final snapped = _snapToLoudnessChange(accepted[i], loudness);
+    final snapped = _snapToSongStart(accepted[i], loudness);
     final others = [0.0, duration, ...accepted]..removeAt(i + 2);
     if (others.every((o) => (o - snapped).abs() >= _minSnappedSeconds)) {
       accepted[i] = snapped;
@@ -315,8 +414,19 @@ List<double> _silenceGaps(_HopEnergies energies, double fps) {
 
 const double _loudnessFrameSeconds = 0.25;
 
-/// Loudness in dB per 0.25 s.
-Float64List _loudnessFrames(_HopEnergies energies, double fps) {
+class _Loudness {
+  /// Loudness in dB per frame.
+  final Float64List db;
+
+  /// A frame is a whole number of hops, so this is only close to
+  /// [_loudnessFrameSeconds].
+  final double frameSeconds;
+
+  _Loudness(this.db, this.frameSeconds);
+}
+
+/// Loudness in dB per ~0.25 s.
+_Loudness _loudnessFrames(_HopEnergies energies, double fps) {
   final perFrame = math.max(1, (_loudnessFrameSeconds * fps).round());
   final count = energies.full.length ~/ perFrame;
   final frames = Float64List(count);
@@ -327,39 +437,38 @@ Float64List _loudnessFrames(_HopEnergies energies, double fps) {
     }
     frames[f] = 10 * math.log(sum / perFrame + 1e-12) / math.ln10;
   }
-  return frames;
+  return _Loudness(frames, perFrame / fps);
 }
 
-/// Song changes in a mix often sit on a short dip or a jump in loudness.
-/// Moves [t] to the clearest such point nearby, if there is one.
-double _snapToLoudnessChange(double t, Float64List loudness) {
+/// In a mix the next song usually starts where the loudness rises: at the
+/// end of a short gap or dip, or with a louder song. Moves [t] to the
+/// clearest such rise nearby, if there is one.
+double _snapToSongStart(double t, _Loudness loudness) {
+  final db = loudness.db;
   double meanDb(int from, int to) {
-    from = math.max(0, from);
-    to = math.min(loudness.length, to);
-    if (to <= from) return 0;
     var sum = 0.0;
     for (var i = from; i < to; i++) {
-      sum += loudness[i];
+      sum += db[i];
     }
     return sum / (to - from);
   }
 
-  final side = (2 / _loudnessFrameSeconds).round();
-  final center = (t / _loudnessFrameSeconds).round();
-  final reach = (_snapSeconds / _loudnessFrameSeconds).round();
+  final before =
+      math.max(1, (_riseBeforeSeconds / loudness.frameSeconds).round());
+  final after = (_riseAfterSeconds / loudness.frameSeconds).round();
+  final center = (t / loudness.frameSeconds).round();
+  final reach = (_snapSeconds / loudness.frameSeconds).round();
   var bestFrame = -1;
-  var bestScore = _minSnapDb;
+  var bestRise = _minSnapDb;
   for (var f = center - reach; f <= center + reach; f++) {
-    if (f - side < 0 || f + side > loudness.length) continue;
-    final jump = (meanDb(f, f + side) - meanDb(f - side, f)).abs();
-    final dip = meanDb(f - side, f + side) - meanDb(f - 1, f + 1);
-    final score = math.max(jump, dip);
-    if (score > bestScore) {
-      bestScore = score;
+    if (f - before < 0 || f + after > db.length) continue;
+    final rise = meanDb(f, f + after) - meanDb(f - before, f);
+    if (rise > bestRise) {
+      bestRise = rise;
       bestFrame = f;
     }
   }
-  return bestFrame < 0 ? t : bestFrame * _loudnessFrameSeconds;
+  return bestFrame < 0 ? t : bestFrame * loudness.frameSeconds;
 }
 
 /// Rhythm "fingerprints": the normalized autocorrelation of the onset
@@ -371,8 +480,8 @@ Future<List<Float64List>> _tempogram(Uint8List envelope, double fps) async {
   final half = (_tempogramWindowSeconds / 2 * fps).round();
   final columns = <Float64List>[];
   for (var k = 0;; k++) {
-    final center = (_tempogramWindowSeconds / 2 + k * _tempogramStepSeconds) *
-        fps;
+    final center =
+        (_tempogramWindowSeconds / 2 + k * _tempogramStepSeconds) * fps;
     final from = (center - half).round();
     final to = from + 2 * half;
     if (to > envelope.length) break;
@@ -410,8 +519,7 @@ Future<List<Float64List>> _tempogram(Uint8List envelope, double fps) async {
 Float64List _rhythmNovelty(List<Float64List> columns, int span) {
   final novelty = Float64List(columns.length);
   if (columns.isEmpty) return novelty;
-  final skip =
-      (_tempogramWindowSeconds / 2 / _tempogramStepSeconds).ceil();
+  final skip = (_tempogramWindowSeconds / 2 / _tempogramStepSeconds).ceil();
   final size = columns.first.length;
   for (var k = span; k + span <= columns.length; k++) {
     final before = Float64List(size);
@@ -440,41 +548,43 @@ Float64List _rhythmNovelty(List<Float64List> columns, int span) {
   return novelty;
 }
 
-/// Song changes found as peaks in the rhythm novelty, strongest first, each
-/// placed precisely with a shorter look-around.
+/// Song changes found as peaks in the rhythm novelty, strongest first.
+/// Around a change the novelty stays near its peak for a few seconds, and
+/// the exact maximum within that plateau is noise; so each change is placed
+/// at the centre of its plateau.
 Future<List<double>> _rhythmChanges(Uint8List envelope, double fps) async {
   final columns = await _tempogram(envelope, fps);
   await _yield();
-  final coarse = _rhythmNovelty(
+  final novelty = _rhythmNovelty(
       columns, (_noveltySpanSeconds / _tempogramStepSeconds).round());
-  final fine = _rhythmNovelty(
-      columns, (_noveltySpanSeconds / 2 / _tempogramStepSeconds).round());
 
-  double timeOf(int k) =>
+  double timeOf(double k) =>
       _tempogramWindowSeconds / 2 + k * _tempogramStepSeconds;
 
   final suppress = (_peakSuppressSeconds / _tempogramStepSeconds).round();
-  final refine = (_refineSeconds / _tempogramStepSeconds).round();
   final peaks = <MapEntry<double, double>>[];
-  for (var k = 0; k < coarse.length; k++) {
-    if (coarse[k] < _noveltyThreshold) continue;
+  for (var k = 0; k < novelty.length; k++) {
+    if (novelty[k] < _noveltyThreshold) continue;
     var isPeak = true;
     for (var o = math.max(0, k - suppress);
-        o <= math.min(coarse.length - 1, k + suppress);
+        o <= math.min(novelty.length - 1, k + suppress);
         o++) {
-      if (coarse[o] > coarse[k] || (coarse[o] == coarse[k] && o < k)) {
+      if (novelty[o] > novelty[k] || (novelty[o] == novelty[k] && o < k)) {
         isPeak = false;
         break;
       }
     }
     if (!isPeak) continue;
-    var best = k;
-    for (var o = math.max(0, k - refine);
-        o <= math.min(fine.length - 1, k + refine);
-        o++) {
-      if (fine[o] > fine[best]) best = o;
+    final level = novelty[k] * _plateauFraction;
+    var from = k;
+    var to = k;
+    while (from > 0 && novelty[from - 1] >= level) {
+      from--;
     }
-    peaks.add(MapEntry(timeOf(best), coarse[k]));
+    while (to < novelty.length - 1 && novelty[to + 1] >= level) {
+      to++;
+    }
+    peaks.add(MapEntry(timeOf((from + to) / 2), novelty[k]));
   }
   peaks.sort((a, b) => b.value.compareTo(a.value));
   return peaks.map((p) => p.key).toList();

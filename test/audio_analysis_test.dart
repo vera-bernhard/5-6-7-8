@@ -68,6 +68,36 @@ void main() {
     expect(analysis.sections[1].start, closeTo(40, 3));
   });
 
+  test('places a late song change where the next song starts', () async {
+    // A quiet breath between the songs, too loud to count as silence.
+    final breath = List<double>.generate((1.5 * sampleRate).round(),
+        (i) => 0.02 * math.sin(2 * math.pi * 220 * i / sampleRate));
+    final analysis = await analyzeAudio(
+      concat([beatTrack(125, 150), breath, beatTrack(140, 40, padHz: 330)]),
+      sampleRate,
+    );
+    expect(analysis.sections, hasLength(2));
+    expect(analysis.sections[1].start, closeTo(151.5, 0.75));
+  });
+
+  test('tempo curve follows a tempo change', () async {
+    final analysis = await analyzeAudio(
+      concat([beatTrack(125, 40), beatTrack(150, 40)]),
+      sampleRate,
+    );
+    final curve = await tempoCurve(analysis);
+    for (final point in curve) {
+      if (point.seconds > 5 && point.seconds < 35) {
+        expect(point.bpm, closeTo(125, 1.5));
+      }
+      if (point.seconds > 45 && point.seconds < 75) {
+        expect(point.bpm, closeTo(150, 1.5));
+      }
+    }
+    expect(curve.where((p) => p.seconds > 5 && p.seconds < 35), hasLength(29));
+    expect(curve.where((p) => p.seconds > 45 && p.seconds < 75), hasLength(29));
+  });
+
   test('waveform shows the gap between songs', () async {
     final silence = List<double>.filled(sampleRate * 2, 0);
     final analysis = await analyzeAudio(
@@ -78,8 +108,7 @@ void main() {
     expect(w, hasLength(1000));
     final gapBucket = (21 / 42 * w.length).round();
     expect(w[gapBucket], lessThan(10));
-    final songLevel =
-        w.sublist(50, 450).reduce((a, b) => a + b) / 400;
+    final songLevel = w.sublist(50, 450).reduce((a, b) => a + b) / 400;
     expect(songLevel, greaterThan(50));
   });
 
