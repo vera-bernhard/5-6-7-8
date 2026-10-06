@@ -16,6 +16,7 @@ dependencies:
   path_provider: ^2.0.15
   audio_waveforms: ^2.0.2
   uuid: ^4.5.1
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

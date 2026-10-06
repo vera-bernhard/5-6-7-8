@@ -1,5 +1,7 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../models/song_analysis.dart';
 
 class WaveformPlayer extends StatelessWidget {
   final Duration position;
@@ -18,6 +20,17 @@ class WaveformPlayer extends StatelessWidget {
   final ValueChanged<Duration> onSeek;
   final String? waveformSeed;
 
+  /// Loudness buckets of the real audio (0–255), or null to show a
+  /// placeholder until the analysis is done.
+  final Uint8List? waveform;
+  final List<BpmSection> sections;
+  final bool analyzing;
+
+  /// Remaining silence of a silent lead-in/out, or null if none is running.
+  final Duration? silenceRemaining;
+  final Duration silenceTotal;
+  final bool silenceIsLeadOut;
+
   const WaveformPlayer({
     super.key,
     required this.position,
@@ -35,6 +48,12 @@ class WaveformPlayer extends StatelessWidget {
     required this.shuffleSectionsRemaining,
     required this.onSeek,
     this.waveformSeed,
+    this.waveform,
+    this.sections = const <BpmSection>[],
+    this.analyzing = false,
+    this.silenceRemaining,
+    this.silenceTotal = Duration.zero,
+    this.silenceIsLeadOut = false,
   });
 
   @override
@@ -42,28 +61,78 @@ class WaveformPlayer extends StatelessWidget {
     final maxMs = duration.inMilliseconds <= 0 ? 1 : duration.inMilliseconds;
     final progress = (position.inMilliseconds / maxMs).clamp(0.0, 1.0);
     final canSaveTimestamp = enabled && onSaveTimestamp != null;
+    final silence = silenceRemaining;
+    final durationSeconds = duration.inMilliseconds / 1000.0;
+    final currentSection = _sectionAt(position.inMilliseconds / 1000.0);
+    final textTheme = Theme.of(context).textTheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child: Text(
-            '${_formatDuration(position)} / ${_formatDuration(duration)}',
-            style: Theme.of(context).textTheme.bodySmall,
+          child: Row(
+            children: [
+              Text(
+                silence != null && !silenceIsLeadOut
+                    ? '-${_formatDuration(_ceilToSecond(silence))} / ${_formatDuration(duration)}'
+                    : '${_formatDuration(position)} / ${_formatDuration(duration)}',
+                style: textTheme.bodySmall,
+              ),
+              const Spacer(),
+              if (analyzing) ...[
+                const SizedBox(
+                  width: 10,
+                  height: 10,
+                  child: CircularProgressIndicator(strokeWidth: 1.5),
+                ),
+                const SizedBox(width: 6),
+                Text('Analyzing…', style: textTheme.bodySmall),
+              ],
+            ],
           ),
         ),
-        const SizedBox(height: 8),
+        if (sections.isNotEmpty && durationSeconds > 0)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+            child: _BpmBand(
+              sections: sections,
+              durationSeconds: durationSeconds,
+              currentSection: currentSection,
+            ),
+          ),
+        const SizedBox(height: 4),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: _WaveformSeekArea(
-            enabled: enabled,
-            progress: progress,
-            seed: waveformSeed ?? 'wave',
-            onSeekRatio: (ratio) {
-              final ms = (duration.inMilliseconds * ratio).round();
-              onSeek(Duration(milliseconds: ms));
-            },
+          child: Stack(
+            children: [
+              _WaveformSeekArea(
+                enabled: enabled,
+                progress: progress,
+                seed: waveformSeed ?? 'wave',
+                waveform: waveform,
+                boundaries: durationSeconds > 0
+                    ? sections
+                        .skip(1)
+                        .map((section) => section.start / durationSeconds)
+                        .toList()
+                    : const <double>[],
+                onSeekRatio: (ratio) {
+                  final ms = (duration.inMilliseconds * ratio).round();
+                  onSeek(Duration(milliseconds: ms));
+                },
+              ),
+              if (silence != null)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: _SilenceOverlay(
+                      remaining: silence,
+                      total: silenceTotal,
+                      isLeadOut: silenceIsLeadOut,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
         const SizedBox(height: 10),
@@ -78,8 +147,10 @@ class WaveformPlayer extends StatelessWidget {
             const SizedBox(width: 10),
             IconButton.filledTonal(
               onPressed: enabled ? onPlayPause : null,
-              tooltip: isPlaying ? 'Pause' : 'Play',
-              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+              tooltip: silence != null ? 'Stop' : (isPlaying ? 'Pause' : 'Play'),
+              icon: Icon(silence != null
+                  ? Icons.stop
+                  : (isPlaying ? Icons.pause : Icons.play_arrow)),
             ),
             const SizedBox(width: 10),
             _ShuffleRingButton(
@@ -111,6 +182,16 @@ class WaveformPlayer extends StatelessWidget {
       ],
     );
   }
+
+  BpmSection? _sectionAt(double seconds) {
+    for (final section in sections) {
+      if (seconds >= section.start && seconds < section.end) return section;
+    }
+    return null;
+  }
+
+  static Duration _ceilToSecond(Duration d) =>
+      Duration(seconds: (d.inMilliseconds / 1000).ceil());
 
   String _formatDuration(Duration d) {
     final totalSeconds = d.inSeconds;
@@ -247,16 +328,80 @@ class _ShuffleRadialPainter extends CustomPainter {
   }
 }
 
+class _SilenceOverlay extends StatelessWidget {
+  final Duration remaining;
+  final Duration total;
+  final bool isLeadOut;
+
+  const _SilenceOverlay({
+    required this.remaining,
+    required this.total,
+    required this.isLeadOut,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final seconds = (remaining.inMilliseconds / 1000).ceil();
+    final totalMs = total.inMilliseconds <= 0 ? 1 : total.inMilliseconds;
+    final elapsed = (1 - remaining.inMilliseconds / totalMs).clamp(0.0, 1.0);
+    // Fraction of the current second that has passed, used to pulse the number.
+    final secondFraction = 1 - (remaining.inMilliseconds % 1000) / 1000;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        color: colors.surface.withValues(alpha: 0.82),
+        child: Column(
+          children: [
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      isLeadOut ? 'Ending in' : 'Starting in',
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                    Transform.scale(
+                      scale: 1.25 - 0.25 * secondFraction,
+                      child: Text(
+                        '$seconds',
+                        style: Theme.of(context)
+                            .textTheme
+                            .displaySmall
+                            ?.copyWith(
+                              color: colors.primary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            LinearProgressIndicator(value: elapsed, minHeight: 4),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _WaveformSeekArea extends StatelessWidget {
   final bool enabled;
   final double progress;
   final String seed;
+  final Uint8List? waveform;
+  final List<double> boundaries;
   final ValueChanged<double> onSeekRatio;
 
   const _WaveformSeekArea({
     required this.enabled,
     required this.progress,
     required this.seed,
+    required this.waveform,
+    required this.boundaries,
     required this.onSeekRatio,
   });
 
@@ -287,6 +432,12 @@ class _WaveformSeekArea extends StatelessWidget {
               painter: _WaveformPainter(
                 progress: progress,
                 seedHash: seed.hashCode,
+                waveform: waveform,
+                boundaries: boundaries,
+                boundaryColor: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.45),
                 background:
                     Theme.of(context).colorScheme.surfaceContainerHighest,
                 inactiveBar: Theme.of(context)
@@ -307,6 +458,9 @@ class _WaveformSeekArea extends StatelessWidget {
 class _WaveformPainter extends CustomPainter {
   final double progress;
   final int seedHash;
+  final Uint8List? waveform;
+  final List<double> boundaries;
+  final Color boundaryColor;
   final Color background;
   final Color inactiveBar;
   final Color activeBar;
@@ -314,6 +468,9 @@ class _WaveformPainter extends CustomPainter {
   _WaveformPainter({
     required this.progress,
     required this.seedHash,
+    required this.waveform,
+    required this.boundaries,
+    required this.boundaryColor,
     required this.background,
     required this.inactiveBar,
     required this.activeBar,
@@ -334,18 +491,30 @@ class _WaveformPainter extends CustomPainter {
     final barWidth = (size.width - totalGap) / bars;
     final centerY = size.height / 2;
     final progressX = size.width * progress;
+    final real = waveform != null && waveform!.isNotEmpty;
+    // The placeholder is drawn faintly until the real waveform is ready.
+    final placeholderAlpha = real ? 1.0 : 0.45;
 
     for (var i = 0; i < bars; i++) {
       final x = i * (barWidth + gap);
-      final amp = _amplitude(i);
-      final barHeight = math.max(4.0, size.height * amp);
+      final amp = real ? _realAmplitude(i, bars) : _amplitude(i);
+      final barHeight = math.max(3.0, size.height * 0.92 * amp);
       final rect = RRect.fromRectAndRadius(
         Rect.fromLTWH(x, centerY - (barHeight / 2), barWidth, barHeight),
         const Radius.circular(2),
       );
+      final color = (x <= progressX) ? activeBar : inactiveBar;
       final barPaint = Paint()
-        ..color = (x <= progressX) ? activeBar : inactiveBar;
+        ..color = color.withValues(alpha: color.a * placeholderAlpha);
       canvas.drawRRect(rect, barPaint);
+    }
+
+    final boundaryPaint = Paint()
+      ..color = boundaryColor
+      ..strokeWidth = 1;
+    for (final ratio in boundaries) {
+      final x = size.width * ratio;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), boundaryPaint);
     }
 
     final headPaint = Paint()
@@ -353,6 +522,18 @@ class _WaveformPainter extends CustomPainter {
       ..strokeWidth = 2;
     canvas.drawLine(
         Offset(progressX, 0), Offset(progressX, size.height), headPaint);
+  }
+
+  /// Mean loudness of the waveform buckets that fall into bar [i].
+  double _realAmplitude(int i, int bars) {
+    final data = waveform!;
+    final from = (i * data.length / bars).floor();
+    final to = math.max(from + 1, ((i + 1) * data.length / bars).floor());
+    var sum = 0;
+    for (var b = from; b < to && b < data.length; b++) {
+      sum += data[b];
+    }
+    return (sum / (to - from) / 255).clamp(0.0, 1.0);
   }
 
   double _amplitude(int i) {
@@ -366,8 +547,88 @@ class _WaveformPainter extends CustomPainter {
   bool shouldRepaint(covariant _WaveformPainter oldDelegate) {
     return oldDelegate.progress != progress ||
         oldDelegate.seedHash != seedHash ||
+        oldDelegate.waveform != waveform ||
+        oldDelegate.boundaries.length != boundaries.length ||
+        oldDelegate.boundaryColor != boundaryColor ||
         oldDelegate.background != background ||
         oldDelegate.inactiveBar != inactiveBar ||
         oldDelegate.activeBar != activeBar;
+  }
+}
+
+/// A strip above the waveform with one block per detected music section.
+class _BpmBand extends StatelessWidget {
+  final List<BpmSection> sections;
+  final double durationSeconds;
+  final BpmSection? currentSection;
+
+  const _BpmBand({
+    required this.sections,
+    required this.durationSeconds,
+    required this.currentSection,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final labelStyle = Theme.of(context).textTheme.labelSmall;
+    return SizedBox(
+      height: 20,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          return Stack(
+            children: [
+              for (var i = 0; i < sections.length; i++)
+                _buildBlock(
+                  sections[i],
+                  i,
+                  width,
+                  colors,
+                  labelStyle,
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildBlock(BpmSection section, int index, double width,
+      ColorScheme colors, TextStyle? labelStyle) {
+    final left = (section.start / durationSeconds).clamp(0.0, 1.0) * width;
+    final right = (section.end / durationSeconds).clamp(0.0, 1.0) * width;
+    final isCurrent = identical(section, currentSection);
+    final background = isCurrent
+        ? colors.primaryContainer
+        : (index.isEven
+            ? colors.surfaceContainerHigh
+            : colors.surfaceContainerHighest);
+    return Positioned(
+      left: left,
+      width: math.max(0.0, right - left - 1),
+      top: 0,
+      bottom: 0,
+      child: Container(
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        alignment: Alignment.center,
+        child: section.bpm > 0
+            ? Text(
+                '${section.bpm.round()} BPM',
+                maxLines: 1,
+                overflow: TextOverflow.clip,
+                softWrap: false,
+                style: labelStyle?.copyWith(
+                  color: isCurrent
+                      ? colors.onPrimaryContainer
+                      : colors.onSurfaceVariant,
+                ),
+              )
+            : null,
+      ),
+    );
   }
 }

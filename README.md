@@ -19,12 +19,19 @@ timestamp ranges with an optional lead-in.
 - Rename or delete songs from the library
 - Open a song in the player view
 - Play, pause, and seek through the track
-- Use a generated waveform-style seek area for scrubbing
+- Use a waveform seek area for scrubbing. In the web app it is computed once
+	from the real audio (in the background after import) and saved, so song
+	changes in a mix are visible
+- See the BPM of each song in a mix: song changes are detected automatically
+	and shown as sections with their BPM above the waveform (web app only)
 - Add timestamps with a name and editable time value
 - Store unnamed timestamps as well
 - Replay a timestamp with a configurable lead-in of `0s`, `1s`, `3s`, or `5s`
 - Long-press timestamps to mark a contiguous segment
 - Replay the selected segment, again with the configured lead-in
+- Configurable lead-out of `0s`, `1s`, `3s`, or `5s` for segments and `Random`
+- If the lead-in reaches before the song start (or the lead-out past its end),
+	the missing time is filled with silence and a visible countdown
 - Mark timestamps as shuffle-enabled
 - Play a random shuffle-enabled segment with the `Random` button
 - Delete individual timestamps

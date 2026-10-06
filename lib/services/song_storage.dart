@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../models/song_analysis.dart';
 import '../models/timestamp.dart';
 
 Map<String, dynamic> _asStringKeyedMap(dynamic raw) {
@@ -19,6 +20,7 @@ class StoredSong {
   final List<Timestamp> timestamps;
   final Set<String> randomTimestampIds;
   final Set<String> playedRandomTimestampIds;
+  final SongAnalysis? analysis;
 
   StoredSong({
     required this.id,
@@ -28,6 +30,7 @@ class StoredSong {
     required this.timestamps,
     Set<String>? randomTimestampIds,
     Set<String>? playedRandomTimestampIds,
+    this.analysis,
   })  : randomTimestampIds = randomTimestampIds ?? <String>{},
         playedRandomTimestampIds = playedRandomTimestampIds ?? <String>{};
 
@@ -38,6 +41,25 @@ class StoredSong {
     return <String>{};
   }
 
+  StoredSong copyWith({
+    String? name,
+    List<Timestamp>? timestamps,
+    Set<String>? randomTimestampIds,
+    Set<String>? playedRandomTimestampIds,
+    SongAnalysis? analysis,
+  }) =>
+      StoredSong(
+        id: id,
+        name: name ?? this.name,
+        audioFileName: audioFileName,
+        audioBytes: audioBytes,
+        timestamps: timestamps ?? this.timestamps,
+        randomTimestampIds: randomTimestampIds ?? this.randomTimestampIds,
+        playedRandomTimestampIds:
+            playedRandomTimestampIds ?? this.playedRandomTimestampIds,
+        analysis: analysis ?? this.analysis,
+      );
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
@@ -47,6 +69,7 @@ class StoredSong {
             timestamps.map((timestamp) => timestamp.toJson()).toList(),
         'randomTimestampIds': randomTimestampIds.toList(),
         'playedRandomTimestampIds': playedRandomTimestampIds.toList(),
+        if (analysis != null) 'analysis': analysis!.toJson(),
       };
 
   factory StoredSong.fromJson(Map<String, dynamic> json) {
@@ -64,6 +87,16 @@ class StoredSong {
     final playedRandomTimestampIds =
         _parseStringSet(json['playedRandomTimestampIds']);
 
+    SongAnalysis? analysis;
+    final rawAnalysis = json['analysis'];
+    if (rawAnalysis != null) {
+      try {
+        analysis = SongAnalysis.fromJson(_asStringKeyedMap(rawAnalysis));
+      } catch (error) {
+        debugPrint('Ignoring unreadable song analysis: $error');
+      }
+    }
+
     return StoredSong(
       id: json['id'] as String,
       name: json['name'] as String,
@@ -73,6 +106,7 @@ class StoredSong {
       randomTimestampIds: randomTimestampIds,
       playedRandomTimestampIds:
           playedRandomTimestampIds.intersection(randomTimestampIds),
+      analysis: analysis,
     );
   }
 
@@ -90,6 +124,28 @@ class SongStorage {
   static const String _boxName = 'songs_storage';
   static const String _songsKey = 'songs';
   static Box<dynamic>? _box;
+
+  // All writes load the whole index and save it again, so they run one after
+  // another. Otherwise a background analysis save could overwrite a
+  // timestamp that was added at the same time.
+  static Future<void> _writeQueue = Future<void>.value();
+
+  static Future<void> _serialized(Future<void> Function() write) {
+    final result = _writeQueue.then((_) => write());
+    _writeQueue = result.catchError((Object _) {});
+    return result;
+  }
+
+  static Future<void> _updateSong(
+      String songId, StoredSong Function(StoredSong song) update) {
+    return _serialized(() async {
+      final songs = await loadAll();
+      final idx = songs.indexWhere((s) => s.id == songId);
+      if (idx == -1) return;
+      songs[idx] = update(songs[idx]);
+      await _saveIndex(songs);
+    });
+  }
 
   static Future<void> init() async {
     if (_box != null && _box!.isOpen) return;
@@ -137,80 +193,63 @@ class SongStorage {
     return null;
   }
 
-  static Future<void> addSong(StoredSong song) async {
-    final songs = await loadAll();
-    songs.removeWhere((s) => s.id == song.id);
-    songs.add(song);
-    await _saveIndex(songs);
+  static Future<void> addSong(StoredSong song) {
+    return _serialized(() async {
+      final songs = await loadAll();
+      songs.removeWhere((s) => s.id == song.id);
+      songs.add(song);
+      await _saveIndex(songs);
+    });
   }
 
   static Future<void> updateTimestamps(
-      String songId, List<Timestamp> timestamps) async {
-    final songs = await loadAll();
-    final idx = songs.indexWhere((s) => s.id == songId);
-    if (idx == -1) return;
-    final timestampIds = timestamps.map((timestamp) => timestamp.id).toSet();
-    final randomTimestampIds =
-        songs[idx].randomTimestampIds.intersection(timestampIds);
-    final playedRandomTimestampIds =
-        songs[idx].playedRandomTimestampIds.intersection(randomTimestampIds);
-    songs[idx] = StoredSong(
-      id: songs[idx].id,
-      name: songs[idx].name,
-      audioFileName: songs[idx].audioFileName,
-      audioBytes: songs[idx].audioBytes,
-      timestamps: timestamps,
-      randomTimestampIds: randomTimestampIds,
-      playedRandomTimestampIds: playedRandomTimestampIds,
-    );
-    await _saveIndex(songs);
+      String songId, List<Timestamp> timestamps) {
+    // Copy, so later in-memory edits don't change what is being saved.
+    final copy = List<Timestamp>.from(timestamps);
+    return _updateSong(songId, (song) {
+      final timestampIds = copy.map((timestamp) => timestamp.id).toSet();
+      final randomTimestampIds =
+          song.randomTimestampIds.intersection(timestampIds);
+      return song.copyWith(
+        timestamps: copy,
+        randomTimestampIds: randomTimestampIds,
+        playedRandomTimestampIds:
+            song.playedRandomTimestampIds.intersection(randomTimestampIds),
+      );
+    });
   }
 
   static Future<void> updateRandomPlaybackState(
     String songId, {
     required Set<String> randomTimestampIds,
     required Set<String> playedRandomTimestampIds,
-  }) async {
-    final songs = await loadAll();
-    final idx = songs.indexWhere((s) => s.id == songId);
-    if (idx == -1) return;
-    final timestampIds =
-        songs[idx].timestamps.map((timestamp) => timestamp.id).toSet();
-    final filteredRandomIds = randomTimestampIds.intersection(timestampIds);
-    final filteredPlayedIds =
-        playedRandomTimestampIds.intersection(filteredRandomIds);
-
-    songs[idx] = StoredSong(
-      id: songs[idx].id,
-      name: songs[idx].name,
-      audioFileName: songs[idx].audioFileName,
-      audioBytes: songs[idx].audioBytes,
-      timestamps: songs[idx].timestamps,
-      randomTimestampIds: filteredRandomIds,
-      playedRandomTimestampIds: filteredPlayedIds,
-    );
-    await _saveIndex(songs);
+  }) {
+    final randomCopy = Set<String>.from(randomTimestampIds);
+    final playedCopy = Set<String>.from(playedRandomTimestampIds);
+    return _updateSong(songId, (song) {
+      final timestampIds =
+          song.timestamps.map((timestamp) => timestamp.id).toSet();
+      final filteredRandomIds = randomCopy.intersection(timestampIds);
+      return song.copyWith(
+        randomTimestampIds: filteredRandomIds,
+        playedRandomTimestampIds: playedCopy.intersection(filteredRandomIds),
+      );
+    });
   }
 
-  static Future<void> renameSong(String songId, String newName) async {
-    final songs = await loadAll();
-    final idx = songs.indexWhere((s) => s.id == songId);
-    if (idx == -1) return;
-    songs[idx] = StoredSong(
-      id: songs[idx].id,
-      name: newName,
-      audioFileName: songs[idx].audioFileName,
-      audioBytes: songs[idx].audioBytes,
-      timestamps: songs[idx].timestamps,
-      randomTimestampIds: songs[idx].randomTimestampIds,
-      playedRandomTimestampIds: songs[idx].playedRandomTimestampIds,
-    );
-    await _saveIndex(songs);
+  static Future<void> renameSong(String songId, String newName) {
+    return _updateSong(songId, (song) => song.copyWith(name: newName));
   }
 
-  static Future<void> deleteSong(String songId) async {
-    final songs = await loadAll();
-    songs.removeWhere((s) => s.id == songId);
-    await _saveIndex(songs);
+  static Future<void> updateAnalysis(String songId, SongAnalysis analysis) {
+    return _updateSong(songId, (song) => song.copyWith(analysis: analysis));
+  }
+
+  static Future<void> deleteSong(String songId) {
+    return _serialized(() async {
+      final songs = await loadAll();
+      songs.removeWhere((s) => s.id == songId);
+      await _saveIndex(songs);
+    });
   }
 }
