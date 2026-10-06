@@ -181,12 +181,20 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     _player.playerStateStream.listen((state) {
       if (!mounted) return;
-      setState(() => _isPlaying = state.playing);
+      final completed = state.processingState == ProcessingState.completed;
+      final wasPlaying = _isPlaying;
+      setState(() {
+        _isPlaying = state.playing;
+        // A pause from anywhere (button, media keys, headphones) clears a
+        // stale segment stop point, so the next play isn't stopped early.
+        // The app's own segment stop clears it after seeking.
+        if (wasPlaying && !state.playing && !completed && !_segmentStopping) {
+          _clearSegmentStopState();
+        }
+      });
       // Clears the segment stop point, and plays the rest of a lead-out that
       // reaches past the end of the song as silence.
-      if (state.processingState == ProcessingState.completed) {
-        _onSongCompleted();
-      }
+      if (completed) _onSongCompleted();
     });
   }
 
@@ -263,19 +271,23 @@ class _HomeScreenState extends State<HomeScreen> {
       final song = _songById(songId);
       if (song == null || song.bytes == null) continue;
       setState(() => _analyzingSongId = songId);
+      SongAnalysis analysis;
       try {
         final decoded = await decodeForAnalysis(song.bytes!);
-        if (decoded == null) continue;
-        final analysis =
-            await analyzeAudio(decoded.samples, decoded.sampleRate);
-        // The song may have been renamed (new entry) or deleted meanwhile.
-        final current = _songById(songId);
-        if (current == null || !mounted) continue;
-        setState(() => current.analysis = analysis);
-        await SongStorage.updateAnalysis(songId, analysis);
+        analysis = decoded == null
+            ? SongAnalysis.failed()
+            : await analyzeAudio(decoded.samples, decoded.sampleRate);
       } catch (error) {
         debugPrint('Audio analysis failed for $songId: $error');
+        // Saved as failed, so the song isn't decoded again on every start.
+        // It is retried when the analysis version changes.
+        analysis = SongAnalysis.failed();
       }
+      // The song may have been renamed (new entry) or deleted meanwhile.
+      final current = _songById(songId);
+      if (current == null || !mounted) continue;
+      setState(() => current.analysis = analysis);
+      await SongStorage.updateAnalysis(songId, analysis);
     }
     if (mounted) setState(() => _analyzingSongId = null);
   }
@@ -386,8 +398,9 @@ class _HomeScreenState extends State<HomeScreen> {
         timestamps: song.timestamps,
       ));
 
-      await _loadSong(song);
+      // Queue first, so opening the song moves it to the front of the queue.
       _enqueueAnalysis(song);
+      await _loadSong(song);
     } catch (_) {
       if (showingUploadLoader && mounted) {
         setState(() => _isPreparingUpload = false);
@@ -699,18 +712,25 @@ class _HomeScreenState extends State<HomeScreen> {
     await _playWithLeadIn(timestamp.seconds, leadInSeconds);
   }
 
-  /// Starts playback [leadInSeconds] before [targetSeconds]. If that point lies
-  /// before the start of the song, the missing time is filled with silence
-  /// while a countdown is shown.
-  Future<void> _playWithLeadIn(double targetSeconds, int leadInSeconds) async {
+  /// Starts playback [leadInSeconds] before [targetSeconds] and, if given,
+  /// stops at [stopAtSeconds]. If the start lies before the beginning of the
+  /// song, the missing time is filled with silence while a countdown is shown.
+  Future<void> _playWithLeadIn(double targetSeconds, int leadInSeconds,
+      {double? stopAtSeconds}) async {
     _cancelSilence();
     final requestId = _playRequestId;
+    // Drop any old stop point first: while pausing and seeking, the player can
+    // still report the old position, which must not trigger a stop.
+    setState(_clearSegmentStopState);
     final startSeconds = targetSeconds - leadInSeconds.toDouble();
     final silenceMs = (-startSeconds * 1000).round();
-    if (silenceMs > 50 && _isPlaying) await _player.pause();
+    if (silenceMs > 50 && _player.playing) await _player.pause();
     await _player.seek(
         Duration(milliseconds: (math.max(0.0, startSeconds) * 1000).round()));
     if (!mounted || requestId != _playRequestId) return;
+    if (stopAtSeconds != null) {
+      setState(() => _playbackStopAtSeconds = stopAtSeconds);
+    }
 
     if (silenceMs > 50) {
       final completed = await _runSilence(
@@ -814,12 +834,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _playSegmentFromTimestamp() async {
     final range = _computeSegmentRange();
     if (range == null) return;
-    setState(() {
-      _segmentStopToken++;
-      _segmentStopping = false;
-      _playbackStopAtSeconds = range.end + _selectedLeadOutSeconds;
-    });
-    await _playWithLeadIn(range.start, _selectedLeadInSeconds);
+    await _playWithLeadIn(range.start, _selectedLeadInSeconds,
+        stopAtSeconds: range.end + _selectedLeadOutSeconds);
   }
 
   Future<void> _toggleShuffleTimestamp(
@@ -1164,9 +1180,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _playedShuffleIdsForSong(song.id).add(selection.startTimestamp.id);
-      _segmentStopToken++;
-      _segmentStopping = false;
-      _playbackStopAtSeconds = selection.stopAt + _selectedLeadOutSeconds;
       _segmentTimestampIds
         ..clear()
         ..addAll(selection.timestampIds);
@@ -1175,7 +1188,8 @@ class _HomeScreenState extends State<HomeScreen> {
     await _persistShuffleStateForSong(song.id);
 
     await _playWithLeadIn(
-        selection.startTimestamp.seconds, _selectedLeadInSeconds);
+        selection.startTimestamp.seconds, _selectedLeadInSeconds,
+        stopAtSeconds: selection.stopAt + _selectedLeadOutSeconds);
   }
 
   Future<void> _deleteTimestamp(_SongEntry song, Timestamp timestamp) async {

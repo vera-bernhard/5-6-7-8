@@ -56,6 +56,16 @@ class SongAnalysis {
     required this.sections,
   });
 
+  /// A result for audio that could not be decoded or analyzed. The player
+  /// keeps the placeholder waveform and shows no sections.
+  factory SongAnalysis.failed() => SongAnalysis(
+        durationSeconds: 0,
+        waveform: Uint8List(0),
+        envelopeFps: 0,
+        onsetEnvelope: Uint8List(0),
+        sections: const <BpmSection>[],
+      );
+
   bool get isCurrent => version == kAnalysisVersion;
 
   Map<String, dynamic> toJson() => {

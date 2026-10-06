@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/song_analysis.dart';
 
@@ -548,7 +548,7 @@ class _WaveformPainter extends CustomPainter {
     return oldDelegate.progress != progress ||
         oldDelegate.seedHash != seedHash ||
         oldDelegate.waveform != waveform ||
-        oldDelegate.boundaries.length != boundaries.length ||
+        !listEquals(oldDelegate.boundaries, boundaries) ||
         oldDelegate.boundaryColor != boundaryColor ||
         oldDelegate.background != background ||
         oldDelegate.inactiveBar != inactiveBar ||

@@ -4,100 +4,190 @@
 
 available under: [vera-bernhard.github.io/5-6-7-8](https://vera-bernhard.github.io/5-6-7-8/)
 
-5-6-7-8 is a Flutter app for music-based training and routines, such as team aerobics, dance, gymnastics, rhythmic gymnastics, cheerleading, figure
-skating, artistic swimming, and show groups. It lets you build a small song
-library, add named timestamps to songs, and replay single timestamps or whole
-timestamp ranges with an optional lead-in.
+5-6-7-8 is a practice app for music-based training and routines, such as team
+aerobics, dance, gymnastics, rhythmic gymnastics, cheerleading, figure skating,
+artistic swimming and show groups. You import your routine music, mark the
+important moments with timestamps, and replay single parts or whole sections
+as often as you need, with a count-in before and some extra time after.
 
-## Current Functionality
+## What the app can do
 
-- Import audio files with these extensions: `mp3`, `wav`, `m4a`, `aac`, `ogg`
-- Name each imported song before adding it to the library
-- Persist songs and timestamps locally on device or in browser storage for the
-	PWA
-- Browse a library of saved songs
-- Rename or delete songs from the library
-- Open a song in the player view
-- Play, pause, and seek through the track
-- Use a waveform seek area for scrubbing. In the web app it is computed once
-	from the real audio (in the background after import) and saved, so song
-	changes in a mix are visible
-- See the BPM of each song in a mix: song changes are detected automatically
-	and shown as sections with their BPM above the waveform (web app only)
-- Add timestamps with a name and editable time value
-- Store unnamed timestamps as well
-- Replay a timestamp with a configurable lead-in of `0s`, `1s`, `3s`, or `5s`
-- Long-press timestamps to mark a contiguous segment
-- Replay the selected segment, again with the configured lead-in
-- Configurable lead-out of `0s`, `1s`, `3s`, or `5s` for segments and `Random`
-- If the lead-in reaches before the song start (or the lead-out past its end),
-	the missing time is filled with silence and a visible countdown
-- Mark timestamps as shuffle-enabled
-- Play a random shuffle-enabled segment with the `Random` button
-- Delete individual timestamps
+### Song library
+- Import audio files (`mp3`, `wav`, `m4a`, `aac`, `ogg`, `mid`, `midi`) and
+  give each song a name
+- Rename and delete songs
+- Everything is stored on your device: no account, no cloud, works offline
 
-## Storage
+### Player
+- Play, pause and seek by tapping or dragging on the waveform
+- The waveform shows the real loudness of the music, so you can see where one
+  song of a mix ends and the next one starts (web app)
+- A BPM band above the waveform shows each song of a mix with its tempo, for
+  example `128 BPM | 143 BPM | 125 BPM`. The song that is currently playing is
+  highlighted (web app)
+- Change the playback speed between 0.8x and 1.2x to practise slower or faster
 
-Songs and timestamps are stored locally using Hive.
+### Timestamps and segments
+- Save a timestamp at the current position, with an optional name and an
+  editable time
+- Replay from any timestamp
+- Long-press timestamps to mark a segment and replay just that part. A segment
+  runs from the first marked timestamp to the timestamp after the last marked
+  one.
 
-- The PWA stores data in browser storage (IndexedDB)
-- For an installable PWA, deploy over HTTPS so the app can be installed and use
-	persistent browser storage
+### Lead-in and lead-out
+- **Lead-in** (0–15 s): replay starts a few seconds before the timestamp, so
+  you have time to get into position
+- **Lead-out** (0–15 s): segments keep playing a few seconds past their end
+- If the lead-in would start before the beginning of the song, the app waits
+  the missing seconds in silence and shows a "Starting in 3… 2… 1" countdown.
+  The same happens with an "Ending in…" countdown when a lead-out reaches past
+  the end of the song. Press Stop to cancel a countdown.
 
-## PWA: What and Why
+### Random practice
+- Mark timestamps for random practice
+- The shuffle button plays a random marked segment, and never the same one
+  twice. The ring around the button shows how many are left. Long-press the
+  button to start over.
 
-A PWA (Progressive Web App) is a website that can be installed like an app and
-launched from the home screen/app launcher.
+## Using it as an app (PWA)
 
-Why this makes sense for 5-6-7-8:
+The web version is a PWA (Progressive Web App): open it once in the browser
+and install it to your home screen, then it starts like a normal app.
 
-- No app store release is required for each update
-- Works on Android, iOS, and desktop browsers from one deployment
-- Fast access during training sessions (open from home screen like an app)
-- Offline use is possible for already loaded app files and locally stored songs
-	and timestamps
-- Local-first storage is practical for routine/music practice without cloud
-	setup
+- No app store needed; updates arrive automatically
+- Works on Android, iOS and desktop from one deployment
+- Works offline once the app is loaded and your songs are imported
+- Data stays in the browser profile on that device; there is no sync between
+  devices
 
-## Offline Functionality
+## Run, build and deploy
 
-The app is designed to work offline after songs are already in local storage.
-
-- Playback and timestamp workflows work without network access once audio is
-	imported
-- Song/timestamp changes are stored locally and remain available offline
-- The app has no cloud sync; data stays on the current device/browser profile
-- For PWA use, first load/install over HTTPS while online, then offline use is
-	available for locally stored content
-
-## Run
-
-Requires a Flutter SDK installation.
+Requires a [Flutter SDK](https://docs.flutter.dev/get-started/install).
 
 ```bash
 flutter pub get
-flutter run -d chrome
+flutter run -d chrome          # run locally
+flutter test test/audio_analysis_test.dart
+flutter build web --release    # build the PWA into build/web
 ```
 
-## Build
+Pushing to the `pwa` branch deploys the web app to GitHub Pages
+(`.github/workflows/deploy.yml`).
 
-Build for PWA/web:
+---
 
-```bash
-flutter build web --release
-```
+## How it is implemented
 
-## Notes
+### Overview
 
-- The waveform display is a generated visual seek aid, not an analyzed audio
-	waveform
-- The app currently keeps audio bytes with each stored song, which makes the
-	web/PWA build self-contained but can increase browser storage usage for large
-	libraries
+| File | Purpose |
+| --- | --- |
+| `lib/screens/home.dart` | Library and player screens, playback logic, lead-in/out, random practice, background analysis queue |
+| `lib/widgets/waveform_player.dart` | Waveform, BPM band, countdown overlay and player buttons |
+| `lib/services/song_storage.dart` | Saving songs, timestamps, random state and analysis results |
+| `lib/services/audio_decoder*.dart` | Decoding audio for analysis (browser only) |
+| `lib/services/audio_analysis.dart` | Waveform, tempo and song-change analysis |
+| `lib/models/` | `Timestamp`, `SongAnalysis` and `BpmSection` data classes |
 
-## Tech Stack
+### Storage
 
-- Flutter
-- Audio playback: just_audio
-- Local storage: hive_flutter
-- File picking: file_picker
+Songs are stored with [Hive](https://pub.dev/packages/hive_flutter); in the
+browser this is IndexedDB. Each song is saved together with its audio bytes,
+timestamps, random-practice state and analysis result. That keeps the web app
+self-contained, but large libraries use a lot of browser storage.
+
+All saves go through one queue and run one after another. Without that, the
+background analysis saving its result could overwrite a timestamp you added at
+the same moment.
+
+### Playback, lead-in and lead-out
+
+Playback uses [just_audio](https://pub.dev/packages/just_audio). For a segment
+the app seeks to *start − lead-in*, plays, and pauses when the position reaches
+*end + lead-out*. If the start lies before 0:00 or the end after the song, a
+timer counts the missing time down in silence before starting, or after the
+song has finished.
+
+### Waveform and BPM analysis
+
+The analysis runs once per song, in the background after import, so you can
+start adding timestamps right away. The result is stored with the song, so it
+never runs twice. It is only available in the web app, because it uses the
+browser's audio decoder.
+
+**1. Decoding.** The browser's Web Audio API (`OfflineAudioContext` +
+`decodeAudioData`) decodes the file and resamples it to 11,025 Hz. The
+channels are mixed to mono. This low sample rate keeps memory use small and is
+still plenty for loudness and rhythm.
+
+**2. Waveform.** The song is split into 1,000 equal pieces, and the loudness
+(RMS) of each piece is stored as a number from 0 to 255. Loudness changes make
+the transitions between songs of a mix visible.
+
+**3. Onset envelope: "where are the beats?"** The audio is cut into short
+steps of about 11.6 ms (about 86 per second). For each step the app measures
+the energy of the whole signal and of the bass below about 200 Hz, where the
+kick drum is. A beat shows up as a sudden *increase* in energy, so the envelope
+is the positive change in loudness (in dB) from one step to the next, with the
+slow loudness trend removed. The result is a curve with a spike at every drum
+hit or note onset. It is stored too, so tempos can be recomputed later without
+decoding the audio again.
+
+**4. Tempo from autocorrelation.** Music repeats: if the beat is every 0.47 s,
+the onset curve looks similar to itself shifted by 0.47 s. The app compares the
+curve with shifted copies of itself (autocorrelation) for every shift between
+the beat lengths of 40 and 180 BPM, and picks the shift that matches best.
+Three extra rules make the result reliable:
+- The match at twice the shift is added, because a real beat also repeats
+  every two beats.
+- A preference for tempos around 125 BPM avoids "half" or "double" errors,
+  e.g. reporting 64 instead of 128.
+- Tempos below 80 are doubled. Some songs (half-time feel) mostly repeat every
+  two beats, and dancers count those at double speed.
+
+The best shift is then refined to a fraction of a step by checking up to 8
+beats in a row, which gives a precision of a fraction of a BPM.
+
+**5. Finding the song changes in a mix.** A single BPM number is not good
+enough for this: it can jump within a song (for example between 70, 94 and
+141), and two songs can have the same tempo. So the app compares the whole
+*rhythm pattern* instead:
+- Every 0.5 s it computes the autocorrelation of the surrounding 6 seconds.
+  This "rhythm fingerprint" (a tempogram) describes which repetitions are
+  strong: beats, half-bars, bars.
+- For every point in time it compares the average fingerprint of the 8 seconds
+  before with the 8 seconds after. Inside a song they are almost the same; at a
+  song change they differ a lot.
+- Clear peaks of this difference become song changes. Silent gaps of at least
+  0.3 s also count.
+- Changes in the first and last 15 seconds are ignored (usually an intro or
+  outro), and every section must be at least 10 seconds long.
+- Finally each change is moved onto a nearby (±4 s) loudness dip or jump, if
+  there is a clear one, because that is usually exactly where the cut is.
+
+**6. BPM per section.** The tempo of each section is computed from its whole
+length with step 4, which is more accurate than short windows.
+
+**Keeping the app responsive.** Flutter web has no background threads for
+Dart code, so the analysis runs on the UI thread in small chunks and lets the
+UI draw in between, so a routine of a few minutes is analyzed in a moment. If
+a file cannot be decoded, that is saved too, so it is not retried on every
+start.
+
+**Limits.** The analysis was tuned on synthetic test tracks and one real
+aerobics mix. A song change can be placed a few seconds early (the next song
+often fades in before the cut), and a long intro without drums can be detected
+as an extra section. When the algorithm changes, `kAnalysisVersion` in
+`lib/models/song_analysis.dart` is increased, and all songs are re-analyzed
+once in the background.
+
+## Tech stack
+
+- [Flutter](https://flutter.dev) (web/PWA, also builds for Android, iOS and
+  desktop; the waveform and BPM analysis are web-only)
+- Audio playback: [just_audio](https://pub.dev/packages/just_audio)
+- Audio decoding for analysis: Web Audio API via
+  [package:web](https://pub.dev/packages/web)
+- Local storage: [hive_flutter](https://pub.dev/packages/hive_flutter)
+- File picking: [file_picker](https://pub.dev/packages/file_picker)
