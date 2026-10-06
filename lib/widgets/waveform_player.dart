@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/song_analysis.dart';
 
 class WaveformPlayer extends StatelessWidget {
+  final String? title;
   final Duration position;
   final Duration duration;
   final bool isPlaying;
@@ -33,6 +34,7 @@ class WaveformPlayer extends StatelessWidget {
 
   const WaveformPlayer({
     super.key,
+    this.title,
     required this.position,
     required this.duration,
     required this.isPlaying,
@@ -65,43 +67,52 @@ class WaveformPlayer extends StatelessWidget {
     final durationSeconds = duration.inMilliseconds / 1000.0;
     final currentSection = _sectionAt(position.inMilliseconds / 1000.0);
     final textTheme = Theme.of(context).textTheme;
+    final showBand = sections.isNotEmpty && durationSeconds > 0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
           child: Row(
             children: [
+              Expanded(
+                child: Text(
+                  title ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.titleMedium,
+                ),
+              ),
+              if (analyzing) ...[
+                const SizedBox(width: 8),
+                const SizedBox(
+                  width: 10,
+                  height: 10,
+                  child: CircularProgressIndicator(strokeWidth: 1.5),
+                ),
+                const SizedBox(width: 4),
+                Text('Analyzing', style: textTheme.bodySmall),
+              ],
+              const SizedBox(width: 8),
               Text(
                 silence != null && !silenceIsLeadOut
                     ? '-${_formatDuration(_ceilToSecond(silence))} / ${_formatDuration(duration)}'
                     : '${_formatDuration(position)} / ${_formatDuration(duration)}',
                 style: textTheme.bodySmall,
               ),
-              const Spacer(),
-              if (analyzing) ...[
-                const SizedBox(
-                  width: 10,
-                  height: 10,
-                  child: CircularProgressIndicator(strokeWidth: 1.5),
-                ),
-                const SizedBox(width: 6),
-                Text('Analyzing…', style: textTheme.bodySmall),
-              ],
             ],
           ),
         ),
-        if (sections.isNotEmpty && durationSeconds > 0)
+        if (showBand)
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
             child: _BpmBand(
               sections: sections,
               durationSeconds: durationSeconds,
               currentSection: currentSection,
             ),
           ),
-        const SizedBox(height: 4),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Stack(
@@ -147,7 +158,8 @@ class WaveformPlayer extends StatelessWidget {
             const SizedBox(width: 10),
             IconButton.filledTonal(
               onPressed: enabled ? onPlayPause : null,
-              tooltip: silence != null ? 'Stop' : (isPlaying ? 'Pause' : 'Play'),
+              tooltip:
+                  silence != null ? 'Stop' : (isPlaying ? 'Pause' : 'Play'),
               icon: Icon(silence != null
                   ? Icons.stop
                   : (isPlaying ? Icons.pause : Icons.play_arrow)),
@@ -367,13 +379,11 @@ class _SilenceOverlay extends StatelessWidget {
                       scale: 1.25 - 0.25 * secondFraction,
                       child: Text(
                         '$seconds',
-                        style: Theme.of(context)
-                            .textTheme
-                            .displaySmall
-                            ?.copyWith(
-                              color: colors.primary,
-                              fontWeight: FontWeight.bold,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.displaySmall?.copyWith(
+                                  color: colors.primary,
+                                  fontWeight: FontWeight.bold,
+                                ),
                       ),
                     ),
                   ],
@@ -459,6 +469,7 @@ class _WaveformPainter extends CustomPainter {
   final double progress;
   final int seedHash;
   final Uint8List? waveform;
+
   final List<double> boundaries;
   final Color boundaryColor;
   final Color background;
@@ -556,7 +567,8 @@ class _WaveformPainter extends CustomPainter {
   }
 }
 
-/// A strip above the waveform with one block per detected music section.
+/// A strip above the waveform with one block per detected music section,
+/// labelled with its BPM.
 class _BpmBand extends StatelessWidget {
   final List<BpmSection> sections;
   final double durationSeconds;
@@ -581,6 +593,7 @@ class _BpmBand extends StatelessWidget {
             children: [
               for (var i = 0; i < sections.length; i++)
                 _buildBlock(
+                  context,
                   sections[i],
                   i,
                   width,
@@ -594,11 +607,31 @@ class _BpmBand extends StatelessWidget {
     );
   }
 
-  Widget _buildBlock(BpmSection section, int index, double width,
-      ColorScheme colors, TextStyle? labelStyle) {
+  Widget _buildBlock(BuildContext context, BpmSection section, int index,
+      double width, ColorScheme colors, TextStyle? labelStyle) {
     final left = (section.start / durationSeconds).clamp(0.0, 1.0) * width;
     final right = (section.end / durationSeconds).clamp(0.0, 1.0) * width;
+    final blockWidth = math.max(0.0, right - left - 1);
     final isCurrent = identical(section, currentSection);
+    final style = labelStyle?.copyWith(
+      color: isCurrent ? colors.onPrimaryContainer : colors.onSurfaceVariant,
+    );
+    // The unit is shown once, in the last block, if it fits there.
+    final isLast = index == sections.length - 1;
+    final candidates = section.bpm <= 0
+        ? const <String>[]
+        : [
+            if (isLast) '${section.bpm.round()} BPM',
+            '${section.bpm.round()}',
+          ];
+    // Hide the number in blocks too narrow for it, instead of clipping it.
+    String? label;
+    for (final candidate in candidates) {
+      if (_textWidth(context, candidate, style) + 6 <= blockWidth) {
+        label = candidate;
+        break;
+      }
+    }
     final background = isCurrent
         ? colors.primaryContainer
         : (index.isEven
@@ -606,7 +639,7 @@ class _BpmBand extends StatelessWidget {
             : colors.surfaceContainerHighest);
     return Positioned(
       left: left,
-      width: math.max(0.0, right - left - 1),
+      width: blockWidth,
       top: 0,
       bottom: 0,
       child: Container(
@@ -615,20 +648,23 @@ class _BpmBand extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
         ),
         alignment: Alignment.center,
-        child: section.bpm > 0
-            ? Text(
-                '${section.bpm.round()} BPM',
-                maxLines: 1,
-                overflow: TextOverflow.clip,
-                softWrap: false,
-                style: labelStyle?.copyWith(
-                  color: isCurrent
-                      ? colors.onPrimaryContainer
-                      : colors.onSurfaceVariant,
-                ),
-              )
-            : null,
+        child: label == null
+            ? null
+            : Text(label, maxLines: 1, softWrap: false, style: style),
       ),
     );
+  }
+
+  static double _textWidth(
+      BuildContext context, String text, TextStyle? style) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
   }
 }

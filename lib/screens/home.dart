@@ -733,8 +733,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (silenceMs > 50) {
-      final completed = await _runSilence(
-          Duration(milliseconds: silenceMs), requestId);
+      final completed =
+          await _runSilence(Duration(milliseconds: silenceMs), requestId);
       if (!completed || !mounted || requestId != _playRequestId) return;
     }
     await _player.play();
@@ -767,8 +767,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _silenceRemaining = total;
       _silenceIsLeadOut = isLeadOut;
     });
-    _silenceTimer =
-        Timer.periodic(const Duration(milliseconds: 50), (timer) {
+    _silenceTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       final remaining = total - stopwatch.elapsed;
       if (remaining <= Duration.zero) {
         timer.cancel();
@@ -1441,31 +1440,20 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                song.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              if (song.audioFileName != null)
-                Text(
-                  song.audioFileName!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.secondary,
-                      ),
-                ),
-            ],
+        // With audio, the player shows the name next to the time.
+        if (!hasAudio)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+            child: Text(
+              song.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
           ),
-        ),
         if (hasAudio)
           WaveformPlayer(
+            title: song.name,
             position: _position,
             duration: _duration,
             isPlaying: _isPlaying || _silenceRemaining != null,

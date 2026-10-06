@@ -61,6 +61,36 @@ and install it to your home screen, then it starts like a normal app.
 - Data stays in the browser profile on that device; there is no sync between
   devices
 
+### Install on iPhone / iPad
+1. Open [vera-bernhard.github.io/5-6-7-8](https://vera-bernhard.github.io/5-6-7-8/)
+   in **Safari**.
+2. Tap the **Share** button (the square with an arrow pointing up).
+3. Scroll down and tap **Add to Home Screen**. If you don't see it, tap
+   **Edit Actions…** and add it.
+4. Keep or change the name and tap **Add**.
+
+The 5-6-7-8 icon now appears on your home screen. On iOS 16.4 and later this
+also works from Chrome or Edge via their Share menu.
+
+### Install on Android
+1. Open [vera-bernhard.github.io/5-6-7-8](https://vera-bernhard.github.io/5-6-7-8/)
+   in **Chrome**.
+2. Tap the **⋮** menu at the top right.
+3. Tap **Add to Home screen** (or **Install app**), then **Install**.
+
+Chrome may also offer to install the app in a banner at the bottom of the
+screen. Other browsers such as Samsung Internet have the same option in their
+menu.
+
+### Good to know
+- Always open 5-6-7-8 from the home-screen icon. On iPhone, the installed app
+  has its own storage, separate from Safari: songs imported in a Safari tab
+  don't show up in the installed app and vice versa.
+- Open the app once while online after installing, so it is ready for offline
+  use.
+- Removing the app from the home screen (on iPhone) or clearing the browser's
+  website data deletes your imported songs and timestamps.
+
 ## Run, build and deploy
 
 Requires a [Flutter SDK](https://docs.flutter.dev/get-started/install).
