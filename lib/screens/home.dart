@@ -3,8 +3,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
+import '../l10n/app_localizations.dart';
 import '../widgets/bpm_details.dart';
+import '../widgets/imprint_button.dart';
+import '../widgets/language_menu.dart';
 import '../widgets/waveform_player.dart';
 import '../models/song_analysis.dart';
 import '../models/timestamp.dart';
@@ -95,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _activeSongId;
   _HomeTab _activeTab = _HomeTab.library;
 
-  String? _loadError;
+  bool _loadFailed = false;
 
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -307,16 +311,16 @@ class _HomeScreenState extends State<HomeScreen> {
     } on TimeoutException {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Audio picker timed out. Please try again.')),
+          SnackBar(
+              content: Text(AppLocalizations.of(context).audioPickerTimedOut)),
         );
       }
       return;
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Audio picker failed. Please try again.')),
+          SnackBar(
+              content: Text(AppLocalizations.of(context).audioPickerFailed)),
         );
       }
       return;
@@ -334,7 +338,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                'Please select an audio file (${_iosAudioExtensions.join(', ')}).',
+                AppLocalizations.of(context)
+                    .selectAudioFile(_iosAudioExtensions.join(', ')),
               ),
             ),
           );
@@ -358,8 +363,9 @@ class _HomeScreenState extends State<HomeScreen> {
         showingUploadLoader = false;
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Could not read the selected audio file.')),
+            SnackBar(
+                content:
+                    Text(AppLocalizations.of(context).couldNotReadAudioFile)),
           );
         }
         return;
@@ -408,7 +414,8 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not process the selected file.')),
+          SnackBar(
+              content: Text(AppLocalizations.of(context).couldNotProcessFile)),
         );
       }
     }
@@ -439,8 +446,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return showDialog<String>(
       context: context,
       builder: (context) {
+        final l10n = AppLocalizations.of(context);
         return AlertDialog(
-          title: const Text('Name this song'),
+          title: Text(l10n.nameSongTitle),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -455,7 +463,7 @@ class _HomeScreenState extends State<HomeScreen> {
               TextField(
                 controller: controller,
                 autofocus: true,
-                decoration: const InputDecoration(labelText: 'Display name'),
+                decoration: InputDecoration(labelText: l10n.displayNameLabel),
                 onSubmitted: (value) {
                   final name = value.trim();
                   Navigator.of(context).pop(name.isEmpty ? defaultName : name);
@@ -466,14 +474,14 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
+              child: Text(l10n.cancel),
             ),
             FilledButton(
               onPressed: () {
                 final name = controller.text.trim();
                 Navigator.of(context).pop(name.isEmpty ? defaultName : name);
               },
-              child: const Text('OK'),
+              child: Text(l10n.ok),
             ),
           ],
         );
@@ -496,7 +504,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadSong(_SongEntry song) async {
     _prioritizeAnalysis(song.id);
     setState(() {
-      _loadError = null;
+      _loadFailed = false;
       _position = Duration.zero;
       _duration = Duration.zero;
       _isPlaying = false;
@@ -521,9 +529,7 @@ class _HomeScreenState extends State<HomeScreen> {
         throw StateError('No path or bytes for selected audio file.');
       }
     } catch (_) {
-      setState(() {
-        _loadError = 'Could not load "${song.name}".';
-      });
+      setState(() => _loadFailed = true);
     }
   }
 
@@ -582,7 +588,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _formatSpeed(double speed) {
-    return '${speed.toStringAsFixed(2)}x';
+    return '${_formatSpeedNumber(speed)}x';
+  }
+
+  /// The speed with two decimals and the decimal separator of the language.
+  String _formatSpeedNumber(double speed) {
+    return NumberFormat('0.00', AppLocalizations.of(context).localeName)
+        .format(speed);
   }
 
   double _snapSpeed(double speed) {
@@ -602,7 +614,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   double? _parseSpeedInput(String raw) {
-    final normalized = raw.trim().toLowerCase().replaceAll('x', '');
+    final normalized =
+        raw.trim().toLowerCase().replaceAll('x', '').replaceAll(',', '.');
     if (normalized.isEmpty) return null;
     return double.tryParse(normalized);
   }
@@ -619,17 +632,18 @@ class _HomeScreenState extends State<HomeScreen> {
     final result = await showDialog<_TimestampDialogResult>(
       context: context,
       builder: (context) {
+        final l10n = AppLocalizations.of(context);
         return AlertDialog(
-          title: const Text('Name This Timestamp'),
+          title: Text(l10n.nameTimestampTitle),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: labelController,
                 autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Timestamp name',
-                  hintText: 'e.g. Chorus start',
+                decoration: InputDecoration(
+                  labelText: l10n.timestampNameLabel,
+                  hintText: l10n.timestampNameHint,
                 ),
               ),
               const SizedBox(height: 12),
@@ -637,9 +651,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 controller: timeController,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                  labelText: 'Time',
-                  hintText: 'e.g. 1:23 or 83.5',
+                decoration: InputDecoration(
+                  labelText: l10n.timeLabel,
+                  hintText: l10n.timeHint,
                 ),
               ),
             ],
@@ -647,7 +661,7 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
+              child: Text(l10n.cancel),
             ),
             FilledButton(
               onPressed: () {
@@ -670,7 +684,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 );
               },
-              child: const Text('Save'),
+              child: Text(l10n.save),
             ),
           ],
         );
@@ -682,9 +696,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (result.label == '__INVALID_TIME__') {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content:
-                Text('Invalid time. Use mm:ss or seconds, e.g. 1:23 or 83.5.'),
+          SnackBar(
+            content: Text(AppLocalizations.of(context).invalidTime),
           ),
         );
       }
@@ -932,7 +945,7 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context) {
         final colorScheme = Theme.of(context).colorScheme;
         return AlertDialog(
-          title: const Text('Shuffle'),
+          title: Text(AppLocalizations.of(context).shuffleTitle),
           content: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -944,7 +957,7 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: [
             FilledButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
+              child: Text(AppLocalizations.of(context).ok),
             ),
           ],
         );
@@ -956,7 +969,7 @@ class _HomeScreenState extends State<HomeScreen> {
     var dialogSpeed = _selectedPlaybackSpeed;
     var isEditingSpeed = false;
     final speedController = TextEditingController(
-      text: dialogSpeed.toStringAsFixed(2),
+      text: _formatSpeedNumber(dialogSpeed),
     );
     await showDialog<void>(
       context: context,
@@ -983,7 +996,7 @@ class _HomeScreenState extends State<HomeScreen> {
               setDialogState(() {
                 dialogSpeed = nextSpeed;
                 if (updateEditorText) {
-                  speedController.text = nextSpeed.toStringAsFixed(2);
+                  speedController.text = _formatSpeedNumber(nextSpeed);
                   speedController.selection = TextSelection.fromPosition(
                     TextPosition(offset: speedController.text.length),
                   );
@@ -992,8 +1005,9 @@ class _HomeScreenState extends State<HomeScreen> {
               _onPlaybackSpeedChanged(nextSpeed);
             }
 
+            final l10n = AppLocalizations.of(context);
             return AlertDialog(
-              title: const Text('Playback Speed'),
+              title: Text(l10n.playbackSpeedTitle),
               content: SizedBox(
                 width: 320,
                 child: Column(
@@ -1084,7 +1098,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           setDialogState(() {
                             isEditingSpeed = true;
                             speedController.text =
-                                dialogSpeed.toStringAsFixed(2);
+                                _formatSpeedNumber(dialogSpeed);
                             speedController.selection =
                                 TextSelection.fromPosition(
                               TextPosition(offset: speedController.text.length),
@@ -1113,9 +1127,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
                           ),
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             isDense: true,
-                            labelText: 'Speed',
+                            labelText: l10n.speedLabel,
                           ),
                           onChanged: (value) {
                             final parsed = _parseSpeedInput(value);
@@ -1146,7 +1160,7 @@ class _HomeScreenState extends State<HomeScreen> {
               actions: [
                 FilledButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Done'),
+                  child: Text(l10n.done),
                 ),
               ],
             );
@@ -1163,14 +1177,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (_shuffleSectionCount(song) == 0) {
       await _showShuffleMessage(
-        'Please select segments for shuffling first.',
+        AppLocalizations.of(context).shuffleNoSegments,
       );
       return;
     }
 
     if (_remainingShuffleSectionCount(song) == 0) {
       await _showShuffleMessage(
-        'All selected shuffle segments were already played. Long-press shuffle to reset.',
+        AppLocalizations.of(context).shuffleAllPlayed,
       );
       return;
     }
@@ -1196,21 +1210,22 @@ class _HomeScreenState extends State<HomeScreen> {
     final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (context) {
+        final l10n = AppLocalizations.of(context);
         return AlertDialog(
-          title: const Text('Delete timestamp?'),
+          title: Text(l10n.deleteTimestampTitle),
           content: Text(
             timestamp.label.isEmpty
-                ? 'This timestamp will be removed permanently.'
-                : '"${timestamp.label}" will be removed permanently.',
+                ? l10n.deleteTimestampUnnamed
+                : l10n.deleteTimestampNamed(timestamp.label),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: Text(l10n.cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Delete'),
+              child: Text(l10n.delete),
             ),
           ],
         );
@@ -1232,23 +1247,24 @@ class _HomeScreenState extends State<HomeScreen> {
     final newName = await showDialog<String>(
       context: context,
       builder: (context) {
+        final l10n = AppLocalizations.of(context);
         return AlertDialog(
-          title: const Text('Rename song'),
+          title: Text(l10n.renameSongTitle),
           content: TextField(
             controller: controller,
             autofocus: true,
-            decoration: const InputDecoration(labelText: 'Song name'),
+            decoration: InputDecoration(labelText: l10n.songNameLabel),
             onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
+              child: Text(l10n.cancel),
             ),
             FilledButton(
               onPressed: () =>
                   Navigator.of(context).pop(controller.text.trim()),
-              child: const Text('Rename'),
+              child: Text(l10n.rename),
             ),
           ],
         );
@@ -1278,20 +1294,20 @@ class _HomeScreenState extends State<HomeScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
+        final l10n = AppLocalizations.of(context);
         return AlertDialog(
-          title: const Text('Delete song?'),
+          title: Text(l10n.deleteSongTitle),
           content: Text(
-            'Do you really want to delete "${song.name}" with '
-            '${song.timestamps.length} timestamp(s)? This cannot be undone.',
+            l10n.deleteSongMessage(song.name, song.timestamps.length),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: Text(l10n.cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Delete'),
+              child: Text(l10n.delete),
             ),
           ],
         );
@@ -1335,6 +1351,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   double? _parseTimestampInputTime(String raw) {
     if (raw.isEmpty) return null;
+    // Accept a decimal comma, e.g. 83,5 in German.
+    raw = raw.replaceAll(',', '.');
 
     if (raw.contains(':')) {
       final parts = raw.split(':');
@@ -1357,12 +1375,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildLibraryView() {
+    final l10n = AppLocalizations.of(context);
     return Column(
       children: [
         Expanded(
           child: _songs.isEmpty
-              ? const Center(
-                  child: Text('No songs yet. Upload your first song below.'),
+              ? Center(
+                  child: Text(l10n.noSongsYet),
                 )
               : ListView.separated(
                   itemCount: _songs.length,
@@ -1372,7 +1391,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     return ListTile(
                       title: Text(song.name),
                       subtitle: Text(
-                        '${song.timestamps.length} timestamp(s)',
+                        l10n.timestampCount(song.timestamps.length),
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -1394,7 +1413,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
           child: SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
@@ -1408,10 +1427,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   : const Icon(Icons.upload_file),
               label: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                child: Text(
-                    _isPreparingUpload ? 'Preparing Upload...' : 'Upload Song'),
+                child: Text(_isPreparingUpload
+                    ? l10n.preparingUpload
+                    : l10n.uploadSong),
               ),
             ),
+          ),
+        ),
+        // Here and not in the app bar, which has no room left on phones.
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              LanguageMenuButton(),
+              ImprintButton(),
+            ],
           ),
         ),
       ],
@@ -1419,8 +1450,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildPlayerView() {
+    final l10n = AppLocalizations.of(context);
     final song = _activeSong;
-    final hasAudio = song != null && _loadError == null;
+    final hasAudio = song != null && !_loadFailed;
     final hasShuffleEnabled =
         song != null && _hasShuffleEnabledTimestamps(song);
     final shuffleSectionsTotal = song != null ? _shuffleSectionCount(song) : 0;
@@ -1433,8 +1465,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ? _selectedLeadOutSeconds
         : 3;
     if (song == null) {
-      return const Center(
-        child: Text('No song selected. Open Library and choose a song.'),
+      return Center(
+        child: Text(l10n.noSongSelected),
       );
     }
 
@@ -1484,7 +1516,9 @@ class _HomeScreenState extends State<HomeScreen> {
           Padding(
             padding: const EdgeInsets.all(24),
             child: Text(
-              _loadError ?? 'Song selected, but audio is not loaded yet.',
+              _loadFailed
+                  ? l10n.couldNotLoadSong(song.name)
+                  : l10n.audioNotLoaded,
               textAlign: TextAlign.center,
             ),
           ),
@@ -1498,7 +1532,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Lead-in'),
+                  Text(l10n.leadIn),
                   const SizedBox(width: 8),
                   DropdownButton<int>(
                     value: leadInValue,
@@ -1520,7 +1554,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Lead-out'),
+                  Text(l10n.leadOut),
                   const SizedBox(width: 8),
                   DropdownButton<int>(
                     value: leadOutValue,
@@ -1552,7 +1586,7 @@ class _HomeScreenState extends State<HomeScreen> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: song.timestamps.isEmpty
-                ? const Center(child: Text('No timestamps yet.'))
+                ? Center(child: Text(l10n.noTimestampsYet))
                 : ListView.separated(
                     itemCount: song.timestamps.length,
                     separatorBuilder: (_, i) {
@@ -1570,7 +1604,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       final isShuffleEnabled =
                           _shuffleIdsForSong(song.id).contains(timestamp.id);
                       final title = timestamp.label.isEmpty
-                          ? 'Timestamp ${i + 1}'
+                          ? l10n.timestampDefaultName(i + 1)
                           : timestamp.label;
                       final isSegment =
                           _segmentTimestampIds.contains(timestamp.id);
@@ -1707,6 +1741,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -1719,16 +1754,16 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(width: 8),
             SegmentedButton<_HomeTab>(
-              segments: const [
+              segments: [
                 ButtonSegment<_HomeTab>(
                   value: _HomeTab.library,
-                  label: Text('Library'),
-                  icon: Icon(Icons.library_music),
+                  label: Text(l10n.library),
+                  icon: const Icon(Icons.library_music),
                 ),
                 ButtonSegment<_HomeTab>(
                   value: _HomeTab.player,
-                  label: Text('Player'),
-                  icon: Icon(Icons.graphic_eq),
+                  label: Text(l10n.player),
+                  icon: const Icon(Icons.graphic_eq),
                 ),
               ],
               selected: <_HomeTab>{_activeTab},

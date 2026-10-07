@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../l10n/app_localizations.dart';
 import '../models/song_analysis.dart';
 
 class WaveformPlayer extends StatelessWidget {
@@ -71,6 +72,7 @@ class WaveformPlayer extends StatelessWidget {
     final durationSeconds = duration.inMilliseconds / 1000.0;
     final currentSection = _sectionAt(position.inMilliseconds / 1000.0);
     final textTheme = Theme.of(context).textTheme;
+    final l10n = AppLocalizations.of(context);
     final showBand = sections.isNotEmpty && durationSeconds > 0;
 
     return Column(
@@ -96,7 +98,7 @@ class WaveformPlayer extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 1.5),
                 ),
                 const SizedBox(width: 4),
-                Text('Analyzing', style: textTheme.bodySmall),
+                Text(l10n.analyzing, style: textTheme.bodySmall),
               ],
               const SizedBox(width: 8),
               Text(
@@ -157,14 +159,15 @@ class WaveformPlayer extends StatelessWidget {
           children: [
             IconButton.filledTonal(
               onPressed: canSaveTimestamp ? onSaveTimestamp : null,
-              tooltip: 'Save Timestamp',
+              tooltip: l10n.saveTimestamp,
               icon: const Icon(Icons.bookmark_add),
             ),
             const SizedBox(width: 10),
             IconButton.filledTonal(
               onPressed: enabled ? onPlayPause : null,
-              tooltip:
-                  silence != null ? 'Stop' : (isPlaying ? 'Pause' : 'Play'),
+              tooltip: silence != null
+                  ? l10n.stop
+                  : (isPlaying ? l10n.pause : l10n.play),
               icon: Icon(silence != null
                   ? Icons.stop
                   : (isPlaying ? Icons.pause : Icons.play_arrow)),
@@ -184,7 +187,7 @@ class WaveformPlayer extends StatelessWidget {
               children: [
                 IconButton.filledTonal(
                   onPressed: enabled ? onToggleSpeed : null,
-                  tooltip: 'Speed $speedLabel',
+                  tooltip: l10n.speedTooltip(speedLabel),
                   icon: const Icon(Icons.speed),
                 ),
                 const SizedBox(width: 4),
@@ -246,7 +249,8 @@ class _ShuffleRingButton extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Tooltip(
-      message: 'Shuffle ($remainingSections/$totalSections left)',
+      message: AppLocalizations.of(context)
+          .shuffleTooltip(remainingSections, totalSections),
       child: Material(
         color: colorScheme.secondaryContainer,
         shape: const CircleBorder(),
@@ -359,6 +363,7 @@ class _SilenceOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context);
     final seconds = (remaining.inMilliseconds / 1000).ceil();
     final totalMs = total.inMilliseconds <= 0 ? 1 : total.inMilliseconds;
     final elapsed = (1 - remaining.inMilliseconds / totalMs).clamp(0.0, 1.0);
@@ -377,7 +382,7 @@ class _SilenceOverlay extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      isLeadOut ? 'Ending in' : 'Starting in',
+                      isLeadOut ? l10n.endingIn : l10n.startingIn,
                       style: Theme.of(context).textTheme.labelLarge,
                     ),
                     Transform.scale(
@@ -595,7 +600,7 @@ class _BpmBand extends StatelessWidget {
     final band = _buildBand(context);
     if (onTap == null) return band;
     return Tooltip(
-      message: 'Show BPM over the song',
+      message: AppLocalizations.of(context).showBpmOverSong,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GestureDetector(

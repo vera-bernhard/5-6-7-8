@@ -53,6 +53,17 @@ as often as you need, with a count-in before and some extra time after.
   twice. The ring around the button shows how many are left. Long-press the
   button to start over.
 
+### Language
+- English and German. The app follows the language of your device, and uses
+  English for other languages
+- To choose a language yourself, tap the 🌐 button below **Upload Song** in
+  the library. **System language** follows the device again.
+
+### Imprint
+- The **About** button (**Impressum** in German) next to the language button
+  shows the developer, who the app was made for, a note that the app is a
+  beta version, a link to this repository and the tools it was built with.
+
 ## Using it as an app (PWA)
 
 The web version is a PWA (Progressive Web App): open it once in the browser
@@ -119,9 +130,22 @@ Pushing to the `pwa` branch deploys the web app to GitHub Pages
 | `lib/screens/home.dart` | Library and player screens, playback logic, lead-in/out, random practice, background analysis queue |
 | `lib/widgets/waveform_player.dart` | Waveform, BPM band, countdown overlay and player buttons |
 | `lib/services/song_storage.dart` | Saving songs, timestamps, random state and analysis results |
+| `lib/services/app_settings.dart` | Saving the chosen language |
+| `lib/l10n/app_*.arb` | All texts of the app, in English and German |
 | `lib/services/audio_decoder*.dart` | Decoding audio for analysis (browser only) |
 | `lib/services/audio_analysis.dart` | Waveform, tempo and song-change analysis |
 | `lib/models/` | `Timestamp`, `SongAnalysis` and `BpmSection` data classes |
+
+### Texts and languages
+
+The texts are not in the code but in `lib/l10n/app_en.arb` (English, also the
+fallback) and `lib/l10n/app_de.arb` (German). Flutter generates
+`lib/l10n/app_localizations*.dart` from them on `flutter pub get`, `run`,
+`build` and `test`, or with `flutter gen-l10n`. To change a text, edit both
+`.arb` files. To add a text, add it to `app_en.arb` first, then translate it in
+`app_de.arb`. Another language is one more `app_<code>.arb` file plus its name
+in `lib/widgets/language_menu.dart`. The language chosen in the app is saved
+with Hive, like the songs; without one, the device's language is used.
 
 ### Storage
 
@@ -234,3 +258,5 @@ once in the background.
   [package:web](https://pub.dev/packages/web)
 - Local storage: [hive_flutter](https://pub.dev/packages/hive_flutter)
 - File picking: [file_picker](https://pub.dev/packages/file_picker)
+- Texts in English and German: Flutter's `gen-l10n` with
+  [flutter_localizations](https://docs.flutter.dev/ui/accessibility-and-internationalization/internationalization)

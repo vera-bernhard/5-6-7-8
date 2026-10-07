@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:five_six_seven_eight/l10n/app_localizations.dart';
 import 'package:five_six_seven_eight/models/song_analysis.dart';
 import 'package:five_six_seven_eight/widgets/bpm_details.dart';
 import 'package:flutter/material.dart';
@@ -24,6 +25,8 @@ void main() {
       ],
     );
     await tester.pumpWidget(MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: Builder(
         builder: (context) => TextButton(
           onPressed: () => showBpmDetails(context, analysis),

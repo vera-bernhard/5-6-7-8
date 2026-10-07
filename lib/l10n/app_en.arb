@@ -1,0 +1,149 @@
+{
+  "@@locale": "en",
+
+  "library": "Library",
+  "player": "Player",
+  "language": "Language",
+  "languageSystem": "System language",
+  "@languageSystem": {
+    "description": "Language menu entry that follows the language of the device."
+  },
+  "imprint": "About",
+  "@imprint": {
+    "description": "Button that shows who made the app (Impressum)."
+  },
+  "authorLine": "Developer: {name}",
+  "@authorLine": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "madeFor": "Made with passion for team aerobics at TV Lenzburg. 5, 6, 7, 8 and go!",
+  "betaNotice": "Beta version: there may still be bugs and changes.",
+  "openSource": "Open source",
+  "builtWith": "Built with",
+  "@builtWith": {
+    "description": "Followed by the Flutter logo and the word Flutter."
+  },
+
+  "cancel": "Cancel",
+  "ok": "OK",
+  "save": "Save",
+  "delete": "Delete",
+  "rename": "Rename",
+  "done": "Done",
+  "close": "Close",
+
+  "noSongsYet": "No songs yet. Upload your first song below.",
+  "uploadSong": "Upload Song",
+  "preparingUpload": "Preparing Upload...",
+  "timestampCount": "{count, plural, =1{1 timestamp} other{{count} timestamps}}",
+  "@timestampCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "audioPickerTimedOut": "Audio picker timed out. Please try again.",
+  "audioPickerFailed": "Audio picker failed. Please try again.",
+  "selectAudioFile": "Please select an audio file ({extensions}).",
+  "@selectAudioFile": {
+    "placeholders": {
+      "extensions": {"type": "String", "example": "mp3, wav"}
+    }
+  },
+  "couldNotReadAudioFile": "Could not read the selected audio file.",
+  "couldNotProcessFile": "Could not process the selected file.",
+  "nameSongTitle": "Name this song",
+  "displayNameLabel": "Display name",
+  "renameSongTitle": "Rename song",
+  "songNameLabel": "Song name",
+  "deleteSongTitle": "Delete song?",
+  "deleteSongMessage": "Do you really want to delete \"{name}\" with {count, plural, =1{1 timestamp} other{{count} timestamps}}? This cannot be undone.",
+  "@deleteSongMessage": {
+    "placeholders": {
+      "name": {"type": "String"},
+      "count": {"type": "int"}
+    }
+  },
+
+  "noSongSelected": "No song selected. Open Library and choose a song.",
+  "couldNotLoadSong": "Could not load \"{name}\".",
+  "@couldNotLoadSong": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "audioNotLoaded": "Song selected, but audio is not loaded yet.",
+  "analyzing": "Analyzing",
+  "@analyzing": {
+    "description": "Shown next to a spinner while the waveform and BPM are computed."
+  },
+  "leadIn": "Lead-in",
+  "@leadIn": {
+    "description": "Seconds that replay starts before a timestamp."
+  },
+  "leadOut": "Lead-out",
+  "@leadOut": {
+    "description": "Seconds that a segment keeps playing past its end."
+  },
+  "startingIn": "Starting in",
+  "@startingIn": {
+    "description": "Countdown before playback starts, followed by the seconds left."
+  },
+  "endingIn": "Ending in",
+  "@endingIn": {
+    "description": "Countdown before playback ends, followed by the seconds left."
+  },
+  "play": "Play",
+  "pause": "Pause",
+  "stop": "Stop",
+  "saveTimestamp": "Save Timestamp",
+  "speedTooltip": "Speed {speed}",
+  "@speedTooltip": {
+    "placeholders": {
+      "speed": {"type": "String", "example": "1.05x"}
+    }
+  },
+  "shuffleTooltip": "Shuffle ({remaining}/{total} left)",
+  "@shuffleTooltip": {
+    "placeholders": {
+      "remaining": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+
+  "noTimestampsYet": "No timestamps yet.",
+  "timestampDefaultName": "Timestamp {number}",
+  "@timestampDefaultName": {
+    "description": "Name of a timestamp the user didn't name.",
+    "placeholders": {
+      "number": {"type": "int"}
+    }
+  },
+  "nameTimestampTitle": "Name This Timestamp",
+  "timestampNameLabel": "Timestamp name",
+  "timestampNameHint": "e.g. Chorus start",
+  "timeLabel": "Time",
+  "timeHint": "e.g. 1:23 or 83.5",
+  "invalidTime": "Invalid time. Use mm:ss or seconds, e.g. 1:23 or 83.5.",
+  "deleteTimestampTitle": "Delete timestamp?",
+  "deleteTimestampUnnamed": "This timestamp will be removed permanently.",
+  "deleteTimestampNamed": "\"{label}\" will be removed permanently.",
+  "@deleteTimestampNamed": {
+    "placeholders": {
+      "label": {"type": "String"}
+    }
+  },
+
+  "shuffleTitle": "Shuffle",
+  "shuffleNoSegments": "Please select segments for shuffling first.",
+  "shuffleAllPlayed": "All selected shuffle segments were already played. Long-press shuffle to reset.",
+
+  "playbackSpeedTitle": "Playback Speed",
+  "speedLabel": "Speed",
+
+  "bpmOverSong": "BPM over the song",
+  "showBpmOverSong": "Show BPM over the song",
+  "noClearBeat": "No clear beat found.",
+  "bpmChartNote": "Measured every second over 8 s. Gaps: no clear beat."
+}

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/song_analysis.dart';
 import '../services/audio_analysis.dart';
 
@@ -26,12 +27,13 @@ class _BpmDetailsDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
+    final l10n = AppLocalizations.of(context);
     final columnStyle = textTheme.bodyMedium
         ?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
     final curve = _curves[analysis] ??= tempoCurve(analysis);
     return AlertDialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      title: const Text('BPM over the song'),
+      title: Text(l10n.bpmOverSong),
       content: SizedBox(
         width: 480,
         child: SingleChildScrollView(
@@ -49,7 +51,7 @@ class _BpmDetailsDialog extends StatelessWidget {
                       return const Center(child: CircularProgressIndicator());
                     }
                     if (points.isEmpty) {
-                      return const Center(child: Text('No clear beat found.'));
+                      return Center(child: Text(l10n.noClearBeat));
                     }
                     return CustomPaint(
                       size: Size.infinite,
@@ -69,7 +71,7 @@ class _BpmDetailsDialog extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Measured every second over 8 s. Gaps: no clear beat.',
+                l10n.bpmChartNote,
                 style: textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -101,7 +103,7 @@ class _BpmDetailsDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text(l10n.close),
         ),
       ],
     );
