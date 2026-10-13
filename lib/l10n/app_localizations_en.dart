@@ -202,6 +202,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Invalid time. Use mm:ss or seconds, e.g. 1:23 or 83.5.';
 
   @override
+  String get timeAfterSongEnd => 'This time is after the end of the song.';
+
+  @override
   String get deleteTimestampTitle => 'Delete timestamp?';
 
   @override
@@ -241,4 +244,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get bpmChartNote =>
       'Measured every second over 8 s. Gaps: no clear beat.';
+
+  @override
+  String get playbackBlocked =>
+      'Playback was blocked by the browser. Tap play to start.';
 }

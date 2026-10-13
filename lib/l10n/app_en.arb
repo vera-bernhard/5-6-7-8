@@ -126,6 +126,7 @@
   "timeLabel": "Time",
   "timeHint": "e.g. 1:23 or 83.5",
   "invalidTime": "Invalid time. Use mm:ss or seconds, e.g. 1:23 or 83.5.",
+  "timeAfterSongEnd": "This time is after the end of the song.",
   "deleteTimestampTitle": "Delete timestamp?",
   "deleteTimestampUnnamed": "This timestamp will be removed permanently.",
   "deleteTimestampNamed": "\"{label}\" will be removed permanently.",
@@ -145,5 +146,6 @@
   "bpmOverSong": "BPM over the song",
   "showBpmOverSong": "Show BPM over the song",
   "noClearBeat": "No clear beat found.",
-  "bpmChartNote": "Measured every second over 8 s. Gaps: no clear beat."
+  "bpmChartNote": "Measured every second over 8 s. Gaps: no clear beat.",
+  "playbackBlocked": "Playback was blocked by the browser. Tap play to start."
 }

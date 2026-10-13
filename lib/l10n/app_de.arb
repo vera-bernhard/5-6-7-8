@@ -59,6 +59,7 @@
   "timeLabel": "Zeit",
   "timeHint": "z. B. 1:23 oder 83,5",
   "invalidTime": "Ungültige Zeit. Verwende mm:ss oder Sekunden, z. B. 1:23 oder 83,5.",
+  "timeAfterSongEnd": "Diese Zeit liegt nach dem Ende des Songs.",
   "deleteTimestampTitle": "Zeitmarke löschen?",
   "deleteTimestampUnnamed": "Diese Zeitmarke wird endgültig gelöscht.",
   "deleteTimestampNamed": "„{label}“ wird endgültig gelöscht.",
@@ -73,5 +74,6 @@
   "bpmOverSong": "BPM-Verlauf",
   "showBpmOverSong": "BPM-Verlauf anzeigen",
   "noClearBeat": "Kein klarer Beat gefunden.",
-  "bpmChartNote": "Jede Sekunde über 8 s gemessen. Lücken: kein klarer Beat."
+  "bpmChartNote": "Jede Sekunde über 8 s gemessen. Lücken: kein klarer Beat.",
+  "playbackBlocked": "Der Browser hat die Wiedergabe blockiert. Tippe auf Play, um zu starten."
 }

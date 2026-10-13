@@ -422,6 +422,12 @@ abstract class AppLocalizations {
   /// **'Invalid time. Use mm:ss or seconds, e.g. 1:23 or 83.5.'**
   String get invalidTime;
 
+  /// No description provided for @timeAfterSongEnd.
+  ///
+  /// In en, this message translates to:
+  /// **'This time is after the end of the song.'**
+  String get timeAfterSongEnd;
+
   /// No description provided for @deleteTimestampTitle.
   ///
   /// In en, this message translates to:
@@ -493,6 +499,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Measured every second over 8 s. Gaps: no clear beat.'**
   String get bpmChartNote;
+
+  /// No description provided for @playbackBlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback was blocked by the browser. Tap play to start.'**
+  String get playbackBlocked;
 }
 
 class _AppLocalizationsDelegate

@@ -209,6 +209,9 @@ class AppLocalizationsDe extends AppLocalizations {
       'Ungültige Zeit. Verwende mm:ss oder Sekunden, z. B. 1:23 oder 83,5.';
 
   @override
+  String get timeAfterSongEnd => 'Diese Zeit liegt nach dem Ende des Songs.';
+
+  @override
   String get deleteTimestampTitle => 'Zeitmarke löschen?';
 
   @override
@@ -249,4 +252,8 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get bpmChartNote =>
       'Jede Sekunde über 8 s gemessen. Lücken: kein klarer Beat.';
+
+  @override
+  String get playbackBlocked =>
+      'Der Browser hat die Wiedergabe blockiert. Tippe auf Play, um zu starten.';
 }

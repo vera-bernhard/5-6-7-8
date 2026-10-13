@@ -100,11 +100,13 @@ class _HomeScreenState extends State<HomeScreen> {
   _HomeTab _activeTab = _HomeTab.library;
 
   bool _loadFailed = false;
+  int _loadRequestId = 0;
 
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   bool _isPlaying = false;
-  int _selectedLeadInSeconds = 0;
+  bool _wasCompleted = false;
+  int _selectedLeadInSeconds = 5;
   int _selectedLeadOutSeconds = 3;
   double _selectedPlaybackSpeed = 1.0;
   bool _isPreparingUpload = false;
@@ -187,6 +189,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _player.playerStateStream.listen((state) {
       if (!mounted) return;
       final completed = state.processingState == ProcessingState.completed;
+      // The web player can stay in `completed` after a seek, so a later play or
+      // pause emits `completed` again. Only the transition counts as the end.
+      final justCompleted = completed && !_wasCompleted;
+      _wasCompleted = completed;
       final wasPlaying = _isPlaying;
       setState(() {
         _isPlaying = state.playing;
@@ -197,9 +203,9 @@ class _HomeScreenState extends State<HomeScreen> {
           _clearSegmentStopState();
         }
       });
-      // Clears the segment stop point, and plays the rest of a lead-out that
-      // reaches past the end of the song as silence.
-      if (completed) _onSongCompleted();
+      // Resets the player, clears the segment stop point, and plays the rest of
+      // a lead-out that reaches past the end of the song as silence.
+      if (justCompleted) _onSongCompleted();
     });
   }
 
@@ -513,24 +519,36 @@ class _HomeScreenState extends State<HomeScreen> {
       _segmentTimestampIds.clear();
     });
     _cancelSilence();
+    final loadId = ++_loadRequestId;
 
     try {
-      await _player.stop();
-
-      if (song.bytes != null) {
-        final source = AudioSource.uri(
-          Uri.dataFromBytes(
-            song.bytes!,
-            mimeType: _mimeTypeFromFileName(song.audioFileName ?? song.name),
-          ),
-        );
-        await _player.setAudioSource(source);
-      } else {
-        throw StateError('No path or bytes for selected audio file.');
-      }
+      // Pause instead of stop: stop() throws away the web <audio> element, and
+      // iOS Safari only lets an element start without a tap once a tap has
+      // started it.
+      await _player.pause();
+      final duration = await _player.setAudioSource(_audioSourceFor(song));
+      if (!mounted || loadId != _loadRequestId) return;
+      // durationStream is distinct, so it may not emit again for a song of the
+      // same length (e.g. reopening the same song).
+      if (duration != null) setState(() => _duration = duration);
     } catch (_) {
+      // A newer load interrupts this one; that is not a failure.
+      if (!mounted || loadId != _loadRequestId) return;
       setState(() => _loadFailed = true);
     }
+  }
+
+  AudioSource _audioSourceFor(_SongEntry song) {
+    final bytes = song.bytes;
+    if (bytes == null) {
+      throw StateError('No path or bytes for selected audio file.');
+    }
+    return AudioSource.uri(
+      Uri.dataFromBytes(
+        bytes,
+        mimeType: _mimeTypeFromFileName(song.audioFileName ?? song.name),
+      ),
+    );
   }
 
   String _mimeTypeFromFileName(String? fileName) {
@@ -552,10 +570,24 @@ class _HomeScreenState extends State<HomeScreen> {
       await _player.pause();
     } else {
       _clearSegmentStopState();
-      if (_player.processingState == ProcessingState.completed) {
-        await _player.seek(Duration.zero);
-      }
+      final atEnd = _duration > Duration.zero &&
+          _player.position >= _duration - const Duration(milliseconds: 100);
+      if (atEnd) await _player.seek(Duration.zero);
+      await _startPlayback();
+    }
+  }
+
+  /// Plays, and recovers if the browser refuses (e.g. iOS Safari when play()
+  /// isn't triggered by a tap), so the UI doesn't stay in "playing".
+  Future<void> _startPlayback() async {
+    try {
       await _player.play();
+    } catch (_) {
+      await _player.pause();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).playbackBlocked)),
+      );
     }
   }
 
@@ -704,6 +736,19 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    // The prefilled time is rounded to whole seconds, so allow half a second.
+    final songSeconds = _duration.inMilliseconds / 1000;
+    if (_duration > Duration.zero && result.seconds > songSeconds + 0.5) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context).timeAfterSongEnd),
+          ),
+        );
+      }
+      return;
+    }
+
     final timestamp = Timestamp(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       seconds: result.seconds,
@@ -737,7 +782,8 @@ class _HomeScreenState extends State<HomeScreen> {
     // still report the old position, which must not trigger a stop.
     setState(_clearSegmentStopState);
     final startSeconds = targetSeconds - leadInSeconds.toDouble();
-    final silenceMs = (-startSeconds * 1000).round();
+    // The silence stands in for song time, so it slows down with the song.
+    final silenceMs = (-startSeconds * 1000 / _selectedPlaybackSpeed).round();
     if (silenceMs > 50 && _player.playing) await _player.pause();
     await _player.seek(
         Duration(milliseconds: (math.max(0.0, startSeconds) * 1000).round()));
@@ -751,19 +797,33 @@ class _HomeScreenState extends State<HomeScreen> {
           await _runSilence(Duration(milliseconds: silenceMs), requestId);
       if (!completed || !mounted || requestId != _playRequestId) return;
     }
-    await _player.play();
+    await _startPlayback();
   }
 
-  /// The song ended before the segment's stop point (end + lead-out): wait out
-  /// the remaining lead-out in silence.
+  /// The song reached its end. Pauses and reloads the song at 0:00: after
+  /// completion just_audio keeps `playing` true (so a later `play()` does
+  /// nothing) and the web player can stay in `completed`. Reloading keeps the
+  /// same web <audio> element, which iOS Safari needs to start playback after
+  /// a countdown. If the song ended before the segment's stop point (end +
+  /// lead-out), the remaining lead-out is waited out in silence.
   Future<void> _onSongCompleted() async {
     final stopAt = _playbackStopAtSeconds;
-    if (stopAt == null) return;
-    setState(_clearSegmentStopState);
+    if (stopAt != null) setState(_clearSegmentStopState);
     final songEndSeconds = _duration.inMilliseconds / 1000.0;
-    final silenceMs = ((stopAt - songEndSeconds) * 1000).round();
+    final silenceMs = stopAt == null
+        ? 0
+        : ((stopAt - songEndSeconds) * 1000 / _selectedPlaybackSpeed).round();
     final requestId = _playRequestId;
+    final loadId = _loadRequestId;
+    final song = _activeSong;
     await _player.pause();
+    if (song != null && mounted && loadId == _loadRequestId) {
+      try {
+        await _player.setAudioSource(_audioSourceFor(song));
+      } catch (_) {
+        // Interrupted by a newer load, or the bytes are gone; nothing to reset.
+      }
+    }
     if (silenceMs > 50 && mounted && requestId == _playRequestId) {
       await _runSilence(Duration(milliseconds: silenceMs), requestId,
           isLeadOut: true);
